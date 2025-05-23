@@ -1,7 +1,7 @@
 # ======= BEGIN nil_news.py =======
 #!/usr/bin/env python3
-"""nil_news.py – Crawl NIL-related news, summarise (GPT if key set),
-store in SQLite, and expose FastAPI JSON endpoints (/summaries, /latest)."""
+"""nil_news.py – Crawl NIL‑related news, optionally summarise with GPT, store in
+SQLite, and expose JSON endpoints at /summaries and /latest."""
 from __future__ import annotations
 
 import argparse
@@ -20,15 +20,15 @@ from dotenv import load_dotenv
 from fastapi import FastAPI, HTTPException, Response
 from trafilatura import extract
 
-# ── Optional GPT summaries ─────────────────────────────────────────
+# ── Optional GPT ---------------------------------------------------
 try:
     import openai  # type: ignore
-except ModuleNotFoundError:
+except ModuleNotFoundError:  # pragma: no cover
     openai = None  # type: ignore
 
 load_dotenv()
 
-# ── Config ────────────────────────────────────────────────────────
+# ── Config ---------------------------------------------------------
 _CFG_PATH = Path(__file__).with_name("config.yaml")
 _DEFAULT_CFG: Dict[str, Any] = {
     "feeds": [
@@ -71,12 +71,11 @@ _DEFAULT_CFG: Dict[str, Any] = {
         ),
     },
 }
-
 if not _CFG_PATH.exists():
     _CFG_PATH.write_text(yaml.safe_dump(_DEFAULT_CFG))
 CFG = _DEFAULT_CFG | yaml.safe_load(_CFG_PATH.read_text())
 
-# ── Database ──────────────────────────────────────────────────────
+# ── Database -------------------------------------------------------
 _SCHEMA_SQL = """
 CREATE TABLE IF NOT EXISTS stories (
     id         TEXT PRIMARY KEY,
@@ -88,7 +87,6 @@ CREATE TABLE IF NOT EXISTS stories (
     crawled_at TEXT
 );
 """
-
 async def init_db() -> aiosqlite.Connection:
     db = await aiosqlite.connect(CFG["db_path"])
     await db.execute(_SCHEMA_SQL)
@@ -99,7 +97,7 @@ async def init_db() -> aiosqlite.Connection:
         await db.commit()
     return db
 
-# ── Summaries ─────────────────────────────────────────────────────
+# ── Summaries ------------------------------------------------------
 _PROMPT = CFG["openai"]["prompt_prefix"]
 
 def _summarise(text: str) -> str:
@@ -107,18 +105,18 @@ def _summarise(text: str) -> str:
         return (text[:300].replace("\n", " ") + "…") if len(text) > 300 else text
     try:
         resp = openai.ChatCompletion.create(
-            model=CFG["openai"]["model"],
+            model=CFG["openai"].get("model", "gpt-3.5-turbo"),
             messages=[{"role": "user", "content": f"{_PROMPT}\n\n{text}"}],
-            max_tokens=CFG["openai"]["max_tokens"],
-            temperature=CFG["openai"]["temperature"],
+            max_tokens=CFG["openai"].get("max_tokens", 128),
+            temperature=CFG["openai"].get("temperature", 0.3),
         )
         return resp.choices[0].message.content.strip()
     except Exception as e:
         print("[warn] OpenAI summarisation failed:", e)
         return (text[:300].replace("\n", " ") + "…") if len(text) > 300 else text
 
-# ── Crawler ───────────────────────────────────────────────────────
-_USER_AGENT = "NILNewsBot/3.0 (+https://github.com/example/nil-news)"
+# ── Crawler --------------------------------------------------------
+_USER_AGENT = "NILNewsBot/3.2 (+https://github.com/example/nil-news)"
 _TIMEOUT = aiohttp.ClientTimeout(total=10)
 
 class NILCrawler:
@@ -183,7 +181,7 @@ class NILCrawler:
         if tasks:
             await _asyncio.gather(*tasks)
 
-# ── Scheduler Loop ───────────────────────────────────────────────
+# ── Scheduler ------------------------------------------------------
 async def continuous_crawl(interval_min: int):
     db = await init_db()
     crawler = NILCrawler(db)
@@ -193,40 +191,25 @@ async def continuous_crawl(interval_min: int):
             await crawler.crawl_once()
             elapsed = (_dt.datetime.utcnow() - start).total_seconds()
             await _asyncio.sleep(max(0, interval_min * 60 - elapsed))
-    except asyncio.CancelledError:
+    except _asyncio.CancelledError:
         pass
     finally:
         await db.close()
 
-# ── FastAPI App ──────────────────────────────────────────────────
-app = FastAPI(title="NIL News API", version="1.0.0")
-
-@app.on_event("startup")
-async def _startup():
-    app.state.db = await init_db()
-    app.state.crawl_task = _asyncio.create_task(
-        continuous_crawl(CFG["crawl_interval_min"])
-    )
-
-@app.on_event("shutdown")
-async def _shutdown():
-    app.state.crawl_task.cancel()
-    await app.state.db.close()
-
-# Root route
-@app.get("/")
-async def root():
-    return {
-        "message": "Welcome to NIL News API",
-        "endpoints": ["/summaries", "/latest"],
-    }
-
-# Health-check route for Render (HEAD / returns 200)
+# ── FastAPI --------------------------------------------------------
+app = FastAPI(title="NIL News API", version
+# Health-check so Render sees 200 instead of 405
 @app.head("/")
 async def _ping() -> Response:
     return Response(status_code=200)
 
-# Summaries route (up to 5 000)
+# Root
+@app.get("/")
+async def root():
+    return {"message": "Welcome to NIL News API",
+            "endpoints": ["/summaries", "/latest"]}
+
+# Summaries (up to 5 000)
 @app.get("/summaries")
 async def summaries(limit: int = 50):
     if limit > 5000:
@@ -239,7 +222,7 @@ async def summaries(limit: int = 50):
         rows = await cur.fetchall()
     return [dict(zip(("title", "url", "published", "brief"), r)) for r in rows]
 
-# Latest route
+# Latest
 @app.get("/latest")
 async def latest():
     sql = """
@@ -252,9 +235,24 @@ async def latest():
         raise HTTPException(404, "no stories yet")
     return dict(zip(("title", "url", "published", "brief"), row))
 
-# ── CLI Entrypoint — allows standalone crawler or API ────────────
+# ── CLI entrypoint: crawler or API ────────────────────────────────
 if __name__ == "__main__":
-    p = argparse.ArgumentParser(description="NIL News (crawler + API)")
-    sub = p.add_subparsers(dest="cmd", required=True)
+    parser = argparse.ArgumentParser(description="NIL News (crawler + API)")
+    sub = parser.add_subparsers(dest="cmd", required=True)
 
-    crawl_p = sub.add_parser("crawl", help
+    crawl_p = sub.add_parser("crawl", help="run continuous crawler")
+    crawl_p.add_argument("--interval", type=int,
+                         default=CFG["crawl_interval_min"],
+                         help="minutes between crawl cycles")
+
+    serve_p = sub.add_parser("serve", help="launch JSON API")
+    serve_p.add_argument("--host", default="0.0.0.0")
+    serve_p.add_argument("--port", type=int, default=8000)
+
+    args = parser.parse_args()
+    if args.cmd == "crawl":
+        _asyncio.run(continuous_crawl(args.interval))
+    elif args.cmd == "serve":
+        import uvicorn
+        uvicorn.run(app, host=args.host, port=args.port, log_level="info")
+# ======= END nil_news.py =======
