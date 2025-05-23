@@ -1,7 +1,7 @@
 # ======= BEGIN nil_news.py =======
 #!/usr/bin/env python3
-"""nil_news.py – crawl NIL news, optionally create GPT summaries, store in
-SQLite, and expose a FastAPI JSON API at /summaries and /latest."""
+"""nil_news.py – crawl NIL news, optionally create GPT summaries, store them
+in SQLite, and expose a FastAPI JSON API at /summaries and /latest."""
 from __future__ import annotations
 
 # — standard libs —
@@ -93,8 +93,8 @@ def _summarise(text: str) -> str:
         resp = openai.ChatCompletion.create(
             model=CFG["openai"]["model"],
             messages=[{"role": "user", "content": f"{_PROMPT}\n\n{text}"}],
-            max_tokens=CFG["openai"].get("max_tokens", 128),
-            temperature=CFG["openai"].get("temperature", 0.3),
+            max_tokens=CFG["openai"]["max_tokens"],
+            temperature=CFG["openai"]["temperature"],
         )
         return resp.choices[0].message.content.strip()
     except Exception as e:
@@ -214,4 +214,4 @@ async def summaries(limit: int = 50):
 @app.get("/latest")
 async def latest():
     async with app.state.db.execute(
-        "SELECT title, url, published, brief FROM stories ORDER BY crawled_at DESC LIMIT 1"
+        "SELECT title, url, published,
