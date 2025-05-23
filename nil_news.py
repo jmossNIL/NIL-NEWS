@@ -196,7 +196,6 @@ async def _startup():
 
 @app.on_event("shutdown")
 async def _shutdown():
-    await app.state.db.close()
 
 @app.get("/")
 async def root():
