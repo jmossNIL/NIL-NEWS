@@ -223,4 +223,25 @@ if __name__ == "__main__":
 
     crawl_p = sub.add_parser("crawl", help="run continuous crawler")
     crawl_p.add_argument(
-        "--interval", type=int, default
+        "--interval",
+        type=int,
+        default=CFG["crawl_interval_min"],
+        help="minutes between crawl cycles",
+    )
+
+    serve_p = sub.add_parser("serve", help="launch JSON API")
+    serve_p.add_argument("--host", default="0.0.0.0")
+    serve_p.add_argument("--port", type=int, default=8000)
+
+    args = p.parse_args()
+    if args.cmd == "crawl":
+        _asyncio.run(continuous_crawl(args.interval))
+    elif args.cmd == "serve":
+        import uvicorn
+        uvicorn.run(
+            "nil_news:app",
+            host=args.host,
+            port=args.port,
+            log_level="info",
+        )
+# ======= END nil_news.py =======
