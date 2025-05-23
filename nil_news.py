@@ -38,33 +38,54 @@ _DEFAULT_CFG = {
         "https://sports.yahoo.com/college/rss",
         "https://www.si.com/college/.rss",
         "https://feeds.feedburner.com/CollegeSportsNews",
-        # — Industry / business outlets —
+        # — National newspapers with college sections —
+        "https://rssfeeds.usatoday.com/UsatodaycomCollegeSports-TopStories",
+        "https://feeds.latimes.com/latimes/sports/college",
+        # — Industry / business & legal —
         "https://frontofficesports.com/feed/",
         "https://www.sportsbusinessjournal.com/RSS/News.aspx",
-        # — NIL‑focused sites —
-        "https://www.on3.com/nil/feed/",
-        "https://www.on3.com/transfer-portal/feed/",
-        # — Governing bodies / compliance —
-        "https://www.ncaa.org/rss.xml",
-        # — Google News topic searches (college + HS) —
-        "https://news.google.com/rss/search?q=NIL+college+athlete",
-        "https://news.google.com/rss/search?q=NIL+high+school+athlete",
-        # — Blog / legal analysis —
         "https://sportico.com/feed/",
         "https://www.sportslawblog.com/atom.xml",
-        # — Twitter (via Nitter/RSSHub) examples —
-        "https://rsshub.app/twitter/user/On3NIL",          # On3 NIL handle
-        "https://rsshub.app/twitter/user/SportsBizMiss",   # Kristi Dosh – sports biz
-        "https://rsshub.app/twitter/user/DarrenHeitner"    # NIL attorney/blogger
+        # — NIL‑focused & recruiting portals —
+        "https://www.on3.com/nil/feed/",
+        "https://www.on3.com/transfer-portal/feed/",
+        "https://www.on3.com/high-school/feed/",
+        "https://247sports.com/rss/",
+        # — Governing bodies / compliance —
+        "https://www.ncaa.org/rss.xml",
+        "https://rsshub.app/ncaa/rss",
+        # — Google News topic searches (college & HS) —
+        "https://news.google.com/rss/search?q=NIL+college+athlete&hl=en-US&gl=US&ceid=US:en",
+        "https://news.google.com/rss/search?q=NIL+high+school+athlete&hl=en-US&gl=US&ceid=US:en",
+        "https://news.google.com/rss/search?q=NIL+bill+site:gov&hl=en-US&gl=US&ceid=US:en",
+        # — Twitter / X handles via RSSHub (community & analysts) —
+        "https://rsshub.app/twitter/user/On3NIL",
+        "https://rsshub.app/twitter/user/SportsBizMiss",
+        "https://rsshub.app/twitter/user/DarrenHeitner",
+        "https://rsshub.app/twitter/user/BusinessOfCollegeSports",
+        "https://rsshub.app/twitter/user/jeremydarlow"  # Athlete branding advisor
     ],
     "keywords": [
+        # core NIL terms
         "nil", "name image likeness", "collective", "booster",
-        "endorsement", "sponsorship", "brand deal", "donor",
-        "transfer portal", "licensing", "royalty", "revenue share",
-        "pay for play", "athlete compensation", "athlete", "student‑athlete",
-        "recruit", "prospect", "high school", "prep", "coach",
-        "compliance", "guideline", "regulation", "ncaa", "state law",
-        "lawsuit", "injunction", "antitrust", "contract", "deal"
+        "endorsement", "sponsorship", "brand deal", "marketing",
+        "royalty", "licensing", "revenue share", "donor",
+        # money / contract words
+        "deal", "contract", "agreement", "payout", "valuation",
+        "funding", "investment", "capital", "million", "billion",
+        # regulatory / legal
+        "state law", "federal bill", "compliance", "guideline",
+        "regulation", "antitrust", "lawsuit", "injunction", "settlement",
+        # athletics actors
+        "athlete", "student‑athlete", "recruit", "prospect", "signee",
+        "high school", "prep", "junior", "coach", "administrator",
+        # portals & processes
+        "transfer portal", "transfer window", "eligibility",
+        # organizations
+        "ncaa", "conference", "sec", "big ten", "acc", "big 12", "pac‑12",
+        # popular collectives names (examples)
+        "one illinois nil", "gator collective", "texasonefund",
+        "spartan dawgs 4life", "the grove collective"
     ],
     "db_path": "nil_news.db",
     "crawl_interval_min": 5,
