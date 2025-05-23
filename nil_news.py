@@ -74,11 +74,9 @@ _DEFAULT_CFG: Dict[str, Any] = {
     },
 }
 
-# write default file if missing
 if not _CFG_PATH.exists():
     _CFG_PATH.write_text(yaml.safe_dump(_DEFAULT_CFG))
 
-# load overrides safely
 CFG: Dict[str, Any] = {**_DEFAULT_CFG, **(yaml.safe_load(_CFG_PATH.read_text()) or {})}
 
 # ── Database -------------------------------------------------------
@@ -229,7 +227,7 @@ async def root():
     return {"message": "Welcome to NIL News API",
             "endpoints": ["/summaries", "/latest"]}
 
-# Summaries (≤ 5 000)
+# Summaries (limit ≤ 5 000)
 @app.get("/summaries")
 async def summaries(limit: int = 50):
     if limit > 5000:
@@ -244,13 +242,10 @@ async def summaries(limit: int = 50):
         rows = await cur.fetchall()
     return [dict(zip(("title", "url", "published", "brief"), r)) for r in rows]
 
-# Latest
+# Latest story
 @app.get("/latest")
 async def latest():
     sql = """
         SELECT title, url, published, brief
         FROM stories
         ORDER BY COALESCE(published, crawled_at) DESC
-        LIMIT 1
-    """
-    async with app.state.db
