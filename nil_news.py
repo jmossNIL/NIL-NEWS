@@ -33,16 +33,38 @@ load_dotenv()
 _CFG_PATH = Path(__file__).with_name("config.yaml")
 _DEFAULT_CFG = {
     "feeds": [
+        # — Mainstream sports news —
         "https://www.espn.com/college-sports/rss",
+        "https://sports.yahoo.com/college/rss",
+        "https://www.si.com/college/.rss",
+        "https://feeds.feedburner.com/CollegeSportsNews",
+        # — Industry / business outlets —
         "https://frontofficesports.com/feed/",
         "https://www.sportsbusinessjournal.com/RSS/News.aspx",
-        "https://www.ncaa.org/rss.xml",
+        # — NIL‑focused sites —
         "https://www.on3.com/nil/feed/",
+        "https://www.on3.com/transfer-portal/feed/",
+        # — Governing bodies / compliance —
+        "https://www.ncaa.org/rss.xml",
+        # — Google News topic searches (college + HS) —
+        "https://news.google.com/rss/search?q=NIL+college+athlete",
+        "https://news.google.com/rss/search?q=NIL+high+school+athlete",
+        # — Blog / legal analysis —
+        "https://sportico.com/feed/",
+        "https://www.sportslawblog.com/atom.xml",
+        # — Twitter (via Nitter/RSSHub) examples —
+        "https://rsshub.app/twitter/user/On3NIL",          # On3 NIL handle
+        "https://rsshub.app/twitter/user/SportsBizMiss",   # Kristi Dosh – sports biz
+        "https://rsshub.app/twitter/user/DarrenHeitner"    # NIL attorney/blogger
     ],
     "keywords": [
         "nil", "name image likeness", "collective", "booster",
-        "endorsement", "sponsorship", "transfer portal", "licensing",
-        "lawsuit", "royalty", "deal", "contract", "pay",
+        "endorsement", "sponsorship", "brand deal", "donor",
+        "transfer portal", "licensing", "royalty", "revenue share",
+        "pay for play", "athlete compensation", "athlete", "student‑athlete",
+        "recruit", "prospect", "high school", "prep", "coach",
+        "compliance", "guideline", "regulation", "ncaa", "state law",
+        "lawsuit", "injunction", "antitrust", "contract", "deal"
     ],
     "db_path": "nil_news.db",
     "crawl_interval_min": 5,
