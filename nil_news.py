@@ -17,10 +17,10 @@ import aiosqlite
 import feedparser
 import yaml
 from dotenv import load_dotenv
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Response
 from trafilatura import extract
 
-# Optional GPT summaries
+# ── Optional GPT summaries ─────────────────────────────────────────
 try:
     import openai  # type: ignore
 except ModuleNotFoundError:
@@ -28,7 +28,7 @@ except ModuleNotFoundError:
 
 load_dotenv()
 
-# ───────── CONFIG ─────────
+# ── Config ────────────────────────────────────────────────────────
 _CFG_PATH = Path(__file__).with_name("config.yaml")
 _DEFAULT_CFG: Dict[str, Any] = {
     "feeds": [
@@ -71,11 +71,12 @@ _DEFAULT_CFG: Dict[str, Any] = {
         ),
     },
 }
+
 if not _CFG_PATH.exists():
     _CFG_PATH.write_text(yaml.safe_dump(_DEFAULT_CFG))
 CFG = _DEFAULT_CFG | yaml.safe_load(_CFG_PATH.read_text())
 
-# ───────── DATABASE ─────────
+# ── Database ──────────────────────────────────────────────────────
 _SCHEMA_SQL = """
 CREATE TABLE IF NOT EXISTS stories (
     id         TEXT PRIMARY KEY,
@@ -87,6 +88,7 @@ CREATE TABLE IF NOT EXISTS stories (
     crawled_at TEXT
 );
 """
+
 async def init_db() -> aiosqlite.Connection:
     db = await aiosqlite.connect(CFG["db_path"])
     await db.execute(_SCHEMA_SQL)
@@ -97,7 +99,7 @@ async def init_db() -> aiosqlite.Connection:
         await db.commit()
     return db
 
-# ───────── SUMMARY ─────────
+# ── Summaries ─────────────────────────────────────────────────────
 _PROMPT = CFG["openai"]["prompt_prefix"]
 
 def _summarise(text: str) -> str:
@@ -107,15 +109,15 @@ def _summarise(text: str) -> str:
         resp = openai.ChatCompletion.create(
             model=CFG["openai"]["model"],
             messages=[{"role": "user", "content": f"{_PROMPT}\n\n{text}"}],
-            max_tokens=CFG["openai"].get("max_tokens", 128),
-            temperature=CFG["openai"].get("temperature", 0.3),
+            max_tokens=CFG["openai"]["max_tokens"],
+            temperature=CFG["openai"]["temperature"],
         )
         return resp.choices[0].message.content.strip()
     except Exception as e:
         print("[warn] OpenAI summarisation failed:", e)
         return (text[:300].replace("\n", " ") + "…") if len(text) > 300 else text
 
-# ───────── CRAWLER ─────────
+# ── Crawler ───────────────────────────────────────────────────────
 _USER_AGENT = "NILNewsBot/3.0 (+https://github.com/example/nil-news)"
 _TIMEOUT = aiohttp.ClientTimeout(total=10)
 
@@ -181,7 +183,7 @@ class NILCrawler:
         if tasks:
             await _asyncio.gather(*tasks)
 
-# ───────── SCHEDULER ─────────
+# ── Scheduler Loop ───────────────────────────────────────────────
 async def continuous_crawl(interval_min: int):
     db = await init_db()
     crawler = NILCrawler(db)
@@ -196,9 +198,63 @@ async def continuous_crawl(interval_min: int):
     finally:
         await db.close()
 
-# ───────── API ─────────
+# ── FastAPI App ──────────────────────────────────────────────────
 app = FastAPI(title="NIL News API", version="1.0.0")
 
 @app.on_event("startup")
 async def _startup():
-    app.state.db
+    app.state.db = await init_db()
+    app.state.crawl_task = _asyncio.create_task(
+        continuous_crawl(CFG["crawl_interval_min"])
+    )
+
+@app.on_event("shutdown")
+async def _shutdown():
+    app.state.crawl_task.cancel()
+    await app.state.db.close()
+
+# Root route
+@app.get("/")
+async def root():
+    return {
+        "message": "Welcome to NIL News API",
+        "endpoints": ["/summaries", "/latest"],
+    }
+
+# Health-check route for Render (HEAD / returns 200)
+@app.head("/")
+async def _ping() -> Response:
+    return Response(status_code=200)
+
+# Summaries route (up to 5 000)
+@app.get("/summaries")
+async def summaries(limit: int = 50):
+    if limit > 5000:
+        raise HTTPException(400, "limit too high")
+    sql = """
+        SELECT title, url, published, brief FROM stories
+        ORDER BY COALESCE(published, crawled_at) DESC LIMIT ?
+    """
+    async with app.state.db.execute(sql, (limit,)) as cur:
+        rows = await cur.fetchall()
+    return [dict(zip(("title", "url", "published", "brief"), r)) for r in rows]
+
+# Latest route
+@app.get("/latest")
+async def latest():
+    sql = """
+        SELECT title, url, published, brief FROM stories
+        ORDER BY COALESCE(published, crawled_at) DESC LIMIT 1
+    """
+    async with app.state.db.execute(sql) as cur:
+        row = await cur.fetchone()
+    if not row:
+        raise HTTPException(404, "no stories yet")
+    return dict(zip(("title", "url", "published", "brief"), row))
+
+# ── CLI Entrypoint — allows standalone crawler or API ────────────
+if __name__ == "__main__":
+    p = argparse.ArgumentParser(description="NIL News (crawler + API)")
+    sub = p.add_subparsers(dest="cmd", required=True)
+
+    crawl_p = sub.add_parser("crawl", help
