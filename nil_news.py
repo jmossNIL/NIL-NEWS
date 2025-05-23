@@ -1,7 +1,7 @@
 # ======= BEGIN nil_news.py =======
 #!/usr/bin/env python3
-"""nil_news.py – crawl NIL news, optionally create GPT summaries, store them
-in SQLite, and expose a FastAPI JSON API at /summaries and /latest."""
+"""nil_news.py – Crawl NIL‑related news, summarize (via OpenAI if key is set),
+store in SQLite, and expose /summaries & /latest JSON endpoints."""
 from __future__ import annotations
 
 import argparse
@@ -20,56 +20,68 @@ from dotenv import load_dotenv
 from fastapi import FastAPI, HTTPException
 from trafilatura import extract
 
+# Optional GPT summaries
 try:
-    import openai
-except ModuleNotFoundError:
+    import openai  # type: ignore
+except ModuleNotFoundError:  # pragma: no cover
     openai = None  # type: ignore
 
 load_dotenv()
 
-# ── Config ───────────────────────────────────────────────
+# ──────────────────────────── CONFIG ────────────────────────────
 _CFG_PATH = Path(__file__).with_name("config.yaml")
-_DEFAULT_CFG = {
+_DEFAULT_CFG: dict[str, Any] = {
     "feeds": [
+        # Mainstream
         "https://www.espn.com/college-sports/rss",
         "https://sports.yahoo.com/college/rss",
         "https://www.si.com/college/.rss",
         "https://feeds.feedburner.com/CollegeSportsNews",
+        # National papers
         "https://rssfeeds.usatoday.com/UsatodaycomCollegeSports-TopStories",
         "https://feeds.latimes.com/latimes/sports/college",
+        # Business / legal
         "https://frontofficesports.com/feed/",
         "https://www.sportsbusinessjournal.com/RSS/News.aspx",
         "https://sportico.com/feed/",
         "https://www.sportslawblog.com/atom.xml",
+        # NIL‑focused / recruiting
         "https://www.on3.com/nil/feed/",
         "https://www.on3.com/transfer-portal/feed/",
         "https://www.on3.com/high-school/feed/",
         "https://247sports.com/rss/",
+        # Governing bodies
         "https://www.ncaa.org/rss.xml",
-        "https://rsshub.app/ncaa/rss",
+        # Google News queries
         "https://news.google.com/rss/search?q=NIL+college+athlete&hl=en-US&gl=US&ceid=US:en",
         "https://news.google.com/rss/search?q=NIL+high+school+athlete&hl=en-US&gl=US&ceid=US:en",
-        "https://news.google.com/rss/search?q=NIL+bill+site:gov&hl=en-US&gl=US&ceid=US:en",
+        # Twitter/X via RSSHub (may fail occasionally)
         "https://rsshub.app/twitter/user/On3NIL",
         "https://rsshub.app/twitter/user/SportsBizMiss",
         "https://rsshub.app/twitter/user/DarrenHeitner",
         "https://rsshub.app/twitter/user/BusinessOfCollegeSports",
-        "https://rsshub.app/twitter/user/jeremydarlow"
+        "https://rsshub.app/twitter/user/jeremydarlow",
     ],
     "keywords": [
+        # Core NIL
         "nil", "name image likeness", "collective", "booster",
         "endorsement", "sponsorship", "brand deal", "marketing",
         "royalty", "licensing", "revenue share", "donor",
+        # Money words
         "deal", "contract", "agreement", "payout", "valuation",
         "funding", "investment", "capital", "million", "billion",
+        # Legal / policy
         "state law", "federal bill", "compliance", "guideline",
         "regulation", "antitrust", "lawsuit", "injunction", "settlement",
+        # People
         "athlete", "student-athlete", "recruit", "prospect", "signee",
         "high school", "prep", "junior", "coach", "administrator",
+        # Processes
         "transfer portal", "transfer window", "eligibility",
-        "ncaa", "conference", "sec", "big ten", "acc", "big 12", "pac-12",
-        "one illinois nil", "gator collective", "texasonefund",
-        "spartan dawgs 4life", "the grove collective"
+        # Orgs / conferences
+        "ncaa", "sec", "big ten", "acc", "big 12", "pac-12",
+        # Known collectives examples
+        "gator collective", "one illinois nil", "texasonefund",
     ],
     "db_path": "nil_news.db",
     "crawl_interval_min": 5,
@@ -84,11 +96,12 @@ _DEFAULT_CFG = {
         ),
     },
 }
+
 if not _CFG_PATH.exists():
     _CFG_PATH.write_text(yaml.safe_dump(_DEFAULT_CFG))
-CFG = _DEFAULT_CFG | yaml.safe_load(_CFG_PATH.read_text())
+CFG: dict[str, Any] = _DEFAULT_CFG | yaml.safe_load(_CFG_PATH.read_text())
 
-# ── Database setup ───────────────────────────────────────
+# ──────────────────────── DATABASE SETUP ─────────────────────────
 _SCHEMA_SQL = """
 CREATE TABLE IF NOT EXISTS stories (
     id         TEXT PRIMARY KEY,
@@ -111,10 +124,11 @@ async def init_db() -> aiosqlite.Connection:
         await db.commit()
     return db
 
-# ── Summarisation helper ─────────────────────────────────
+# ────────────────────────── SUMMARIES ───────────────────────────
 _PROMPT = CFG["openai"]["prompt_prefix"]
 
 def _summarise(text: str) -> str:
+    """Return GPT summary if key set; else fallback excerpt."""
     if openai is None or os.getenv("OPENAI_API_KEY") is None:
         return (text[:300].replace("\n", " ") + "…") if len(text) > 300 else text
     try:
@@ -125,12 +139,12 @@ def _summarise(text: str) -> str:
             temperature=CFG["openai"].get("temperature", 0.3),
         )
         return resp.choices[0].message.content.strip()
-    except Exception as e:
+    except Exception as e:  # pragma: no cover
         print("[warn] OpenAI summarisation failed:", e)
         return (text[:300].replace("\n", " ") + "…") if len(text) > 300 else text
 
-# ── Crawler class ────────────────────────────────────────
-_USER_AGENT = "NILNewsBot/1.0 (+https://github.com/example/nil-news)"
+# ────────────────────────── CRAWLER ─────────────────────────────
+_USER_AGENT = "NILNewsBot/2.0 (+https://github.com/example/nil-news)"
 _TIMEOUT = aiohttp.ClientTimeout(total=10)
 
 class NILCrawler:
@@ -184,16 +198,12 @@ class NILCrawler:
         await self.db.commit()
         print("[+] stored:", entry.get("title"))
 
-        async def crawl_once(self):
-        """Parse each feed, queue tasks, await them."""
-        tasks = []
+    async def crawl_once(self):
+        """Fetch all feeds once and process entries."""
+        tasks: list[asyncio.Task] = []
         for feed in CFG["feeds"]:
             parsed = feedparser.parse(feed)
             if parsed.bozo:
                 print(f"[warn] bad feed: {feed}")
-                continue  # skip broken feed
-            tasks.extend(self._process_entry(e) for e in parsed.entries)
-
-        if tasks:
-            await _asyncio.gather(*tasks)
-
+                continue  # skip invalid feed
+            tasks.extend(self._process
