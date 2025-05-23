@@ -1,7 +1,7 @@
 # ======= BEGIN nil_news.py =======
 #!/usr/bin/env python3
-"""nil_news.py – crawl NIL news, optionally create GPT summaries,
-store them in SQLite, and serve a FastAPI JSON API (/summaries & /latest)."""
+"""nil_news.py – crawl NIL news, optionally create GPT summaries, store in
+SQLite, and serve a FastAPI JSON API at /summaries and /latest."""
 from __future__ import annotations
 
 # — standard libs —
@@ -22,7 +22,7 @@ from dotenv import load_dotenv
 from fastapi import FastAPI, HTTPException
 from trafilatura import extract
 
-# Optional GPT summaries
+# optional GPT summaries
 try:
     import openai
 except ModuleNotFoundError:
@@ -51,10 +51,11 @@ _DEFAULT_CFG = {
         "model": "gpt-3.5-turbo",
         "max_tokens": 128,
         "temperature": 0.3,
-        "prompt_prefix":
-            "Summarise the following college sports NIL news article in "
-            "three sentences (~60 words). Focus on money figures, athletes, "
-            "schools, and implications:",
+        "prompt_prefix": (
+            "Summarise the following college sports NIL news article in three "
+            "sentences (~60 words). Focus on money figures, athletes, schools, "
+            "and implications:"
+        ),
     },
 }
 if not _CFG_PATH.exists():
@@ -74,9 +75,12 @@ CREATE TABLE IF NOT EXISTS stories (
 );
 """
 async def init_db() -> aiosqlite.Connection:
+    """Create DB and add `brief` column if upgrading."""
     db = await aiosqlite.connect(CFG["db_path"])
     await db.execute(_SCHEMA_SQL)
-    cols = [row[1] async for row in db.execute("PRAGMA table_info(stories)")]
+    # enumerate columns safely with async cursor
+    async with db.execute("PRAGMA table_info(stories)") as cur:
+        cols = [row[1] async for row in cur]
     if "brief" not in cols:
         await db.execute("ALTER TABLE stories ADD COLUMN brief TEXT")
         await db.commit()
