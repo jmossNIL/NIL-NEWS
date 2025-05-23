@@ -7,6 +7,6 @@ fastapi
 uvicorn
 python-dotenv
 pyyaml
-openai           # optional — delete if you won’t use GPT summaries
-dumb-init        # tiny PID 1 helper for Docker
+openai==0.28.1      # pin to old API; remove version pin to migrate later
+dumb-init           # PID-1 helper in Docker
 # ===== END requirements.txt =====
