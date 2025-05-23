@@ -1,9 +1,8 @@
-# ======= BEGIN Dockerfile =======
-# Minimal image that runs BOTH the crawler and the FastAPI service
+# Docker image that runs BOTH the crawler and the FastAPI service
 FROM python:3.11-slim AS base
 WORKDIR /app
 
-# — System libraries required by trafilatura —
+# — System libraries required by trafilatura (lxml, brotli, etc.) —
 RUN apt-get update && apt-get install -y \
         build-essential \
         libxml2-dev \
@@ -24,13 +23,8 @@ ENV PYTHONUNBUFFERED=1 \
     UVCORN_PORT=8000 \
     CRAWL_INTERVAL_MIN=5
 
-# Use dumb-init so both processes exit cleanly
+# Simple PID-1 so both processes exit cleanly
 RUN pip install --no-cache-dir dumb-init
 
-# — Start background crawler + API (single-line CMD avoids parse issues) —
+# — Start background crawler + API (single-line CMD avoids parse errors) —
 CMD ["bash", "-c", "python nil_wire.py crawl --interval ${CRAWL_INTERVAL_MIN} & python nil_wire.py serve --host ${UVCORN_HOST} --port ${UVCORN_PORT}"]
-# ======== END Dockerfile ========
-
-    python nil_wire.py serve --host $UVCORN_HOST --port $UVCORN_PORT
-"
-# ======== END Dockerfile ========
