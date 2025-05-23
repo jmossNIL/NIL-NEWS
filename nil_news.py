@@ -184,8 +184,16 @@ class NILCrawler:
         await self.db.commit()
         print("[+] stored:", entry.get("title"))
 
-    async def crawl_once(self):
+        async def crawl_once(self):
+        """Parse each feed, queue tasks, await them."""
         tasks = []
         for feed in CFG["feeds"]:
             parsed = feedparser.parse(feed)
             if parsed.bozo:
+                print(f"[warn] bad feed: {feed}")
+                continue  # skip broken feed
+            tasks.extend(self._process_entry(e) for e in parsed.entries)
+
+        if tasks:
+            await _asyncio.gather(*tasks)
+
