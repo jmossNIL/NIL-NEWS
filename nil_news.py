@@ -1,7 +1,7 @@
 # ======= BEGIN nil_news.py =======
 #!/usr/bin/env python3
-"""nil_news.py – crawl NIL news, build optional GPT summaries, store data
-in SQLite, and expose a FastAPI JSON API at /summaries and /latest."""
+"""nil_news.py – crawl NIL news, optionally create GPT summaries,
+store them in SQLite, and serve a FastAPI JSON API (/summaries & /latest)."""
 from __future__ import annotations
 
 # — standard libs —
@@ -13,7 +13,7 @@ import os
 from pathlib import Path
 from typing import Any, Dict
 
-# — third‑party —
+# — third-party —
 import aiohttp
 import aiosqlite
 import feedparser
@@ -22,8 +22,9 @@ from dotenv import load_dotenv
 from fastapi import FastAPI, HTTPException
 from trafilatura import extract
 
+# Optional GPT summaries
 try:
-    import openai  # optional GPT summaries
+    import openai
 except ModuleNotFoundError:
     openai = None  # type: ignore
 
@@ -50,11 +51,10 @@ _DEFAULT_CFG = {
         "model": "gpt-3.5-turbo",
         "max_tokens": 128,
         "temperature": 0.3,
-        "prompt_prefix": (
+        "prompt_prefix":
             "Summarise the following college sports NIL news article in "
             "three sentences (~60 words). Focus on money figures, athletes, "
-            "schools, and implications:"
-        ),
+            "schools, and implications:",
     },
 }
 if not _CFG_PATH.exists():
@@ -84,9 +84,7 @@ async def init_db() -> aiosqlite.Connection:
 
 # ── Summaries ────────────────────────────────────────────
 _PROMPT = CFG["openai"]["prompt_prefix"]
-
 def _summarise(text: str) -> str:
-    """Return ~60‑word summary using GPT if key present, else excerpt."""
     if openai is None or os.getenv("OPENAI_API_KEY") is None:
         return (text[:300].replace("\n", " ") + "…") if len(text) > 300 else text
     try:
@@ -114,12 +112,15 @@ class NILCrawler:
         return any(k in txt.lower() for k in self.keywords)
 
     async def _exists(self, story_id: str) -> bool:
-        async with self.db.execute("SELECT 1 FROM stories WHERE id=?", (story_id,)) as cur:
+        async with self.db.execute(
+            "SELECT 1 FROM stories WHERE id=?", (story_id,)
+        ) as cur:
             return await cur.fetchone() is not None
 
     async def _fetch_html(self, url: str) -> str | None:
         try:
-            async with aiohttp.ClientSession(headers={"User-Agent": _USER_AGENT}, timeout=_TIMEOUT) as s:
+            async with aiohttp.ClientSession(headers={"User-Agent": _USER_AGENT},
+                                             timeout=_TIMEOUT) as s:
                 async with s.get(url) as r:
                     r.raise_for_status()
                     return await r.text()
@@ -200,16 +201,20 @@ async def summaries(limit: int = 50):
     if limit > 500:
         raise HTTPException(400, "limit too high")
     async with app.state.db.execute(
-        "SELECT title, url, published, brief FROM stories ORDER BY crawled_at DESC LIMIT ?",
-        (limit,),
+        "SELECT title, url, published, brief FROM stories "
+        "ORDER BY crawled_at DESC LIMIT ?", (limit,)
     ) as cur:
         rows = await cur.fetchall()
-    return [dict(zip(("title", "url", "published", "brief"), r)) for r in rows]
+    return [
+        dict(zip(("title", "url", "published", "brief"), r))
+        for r in rows
+    ]
 
 @app.get("/latest")
 async def latest():
     async with app.state.db.execute(
-        "SELECT title, url, published, brief FROM stories ORDER BY crawled_at DESC LIMIT 1"
+        "SELECT title, url, published, brief FROM stories "
+        "ORDER BY crawled_at DESC LIMIT 1"
     ) as cur:
         row = await cur.fetchone()
     if not row:
@@ -239,7 +244,7 @@ if __name__ == "__main__":
     elif args.cmd == "serve":
         import uvicorn
         uvicorn.run(
-            "nil_news:app",
+            app,
             host=args.host,
             port=args.port,
             log_level="info",
