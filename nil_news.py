@@ -248,7 +248,8 @@ async def summaries(limit: int = 50):
     if limit > 500:
         raise HTTPException(400, "limit too high")
     async with app.state.db.execute(
-        "SELECT title, url, published, brief FROM stories ORDER BY crawled_at DESC LIMIT ?",
+        "SELECT title, url, published, brief FROM stories
+        ORDER BY COALESCE(published, crawled_at) DESC LIMIT ?",
         (limit,),
     ) as cur:
         rows = await cur.fetchall()
@@ -257,7 +258,8 @@ async def summaries(limit: int = 50):
 @app.get("/latest")
 async def latest():
     async with app.state.db.execute(
-        "SELECT title, url, published, brief FROM stories ORDER BY crawled_at DESC LIMIT 1",
+        "SELECT title, url, published, brief FROM stories
+        ORDER BY COALESCE(published, crawled_at) DESC LIMIT 1",
     ) as cur:
         row = await cur.fetchone()
     if not row:
