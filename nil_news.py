@@ -74,9 +74,11 @@ _DEFAULT_CFG: Dict[str, Any] = {
     },
 }
 
+# write default config if missing
 if not _CFG_PATH.exists():
     _CFG_PATH.write_text(yaml.safe_dump(_DEFAULT_CFG))
 
+# merge user overrides safely
 CFG: Dict[str, Any] = {**_DEFAULT_CFG, **(yaml.safe_load(_CFG_PATH.read_text()) or {})}
 
 # ── Database -------------------------------------------------------
@@ -106,6 +108,7 @@ async def init_db() -> aiosqlite.Connection:
 _PROMPT = CFG["openai"]["prompt_prefix"]
 
 def _summarise(text: str) -> str:
+    """Return GPT summary if key set; otherwise fallback to excerpt."""
     if openai is None or os.getenv("OPENAI_API_KEY") is None:
         return (text[:300].replace("\n", " ") + "…") if len(text) > 300 else text
     try:
@@ -121,7 +124,7 @@ def _summarise(text: str) -> str:
         return (text[:300].replace("\n", " ") + "…") if len(text) > 300 else text
 
 # ── Crawler --------------------------------------------------------
-_USER_AGENT = "NILNewsBot/3.4 (+https://github.com/example/nil-news)"
+_USER_AGENT = "NILNewsBot/3.5 (+https://github.com/example/nil-news)"
 _TIMEOUT = aiohttp.ClientTimeout(total=10)
 
 class NILCrawler:
@@ -227,7 +230,7 @@ async def root():
     return {"message": "Welcome to NIL News API",
             "endpoints": ["/summaries", "/latest"]}
 
-# Summaries (limit ≤ 5 000)
+# ── Summaries (limit ≤ 5 000) ─────────────────────────────────────
 @app.get("/summaries")
 async def summaries(limit: int = 50):
     if limit > 5000:
@@ -242,10 +245,41 @@ async def summaries(limit: int = 50):
         rows = await cur.fetchall()
     return [dict(zip(("title", "url", "published", "brief"), r)) for r in rows]
 
-# Latest story
+# ── Latest story ──────────────────────────────────────────────────
 @app.get("/latest")
 async def latest():
     sql = """
         SELECT title, url, published, brief
         FROM stories
         ORDER BY COALESCE(published, crawled_at) DESC
+        LIMIT 1
+    """
+    async with app.state.db.execute(sql) as cur:
+        row = await cur.fetchone()
+    if not row:
+        raise HTTPException(404, "no stories yet")
+    return dict(zip(("title", "url", "published", "brief"), row))
+
+# ── CLI entrypoint ────────────────────────────────────────────────
+if __name__ == "__main__":
+    parser = argparse.ArgumentParser(description="NIL News (crawler + API)")
+    sub = parser.add_subparsers(dest="cmd", required=True)
+
+    crawl_p = sub.add_parser("crawl", help="run continuous crawler")
+    crawl_p.add_argument(
+        "--interval", type=int,
+        default=CFG["crawl_interval_min"],
+        help="minutes between crawl cycles",
+    )
+
+    serve_p = sub.add_parser("serve", help="launch JSON API")
+    serve_p.add_argument("--host", default="0.0.0.0")
+    serve_p.add_argument("--port", type=int, default=8000)
+
+    args = parser.parse_args()
+    if args.cmd == "crawl":
+        _asyncio.run(continuous_crawl(args.interval))
+    elif args.cmd == "serve":
+        import uvicorn
+        uvicorn.run(app, host=args.host, port=args.port, log_level="info")
+# ======= END nil_news.py =======
