@@ -1,7 +1,7 @@
 # ======= BEGIN nil_news.py =======
 #!/usr/bin/env python3
-"""nil_news.py – Crawl NIL‑related news, summarize (via OpenAI if key is set),
-store in SQLite, and expose /summaries & /latest JSON endpoints."""
+"""nil_news.py – Crawl NIL-related news, summarise (GPT if key set),
+store in SQLite, and expose FastAPI JSON endpoints (/summaries, /latest)."""
 from __future__ import annotations
 
 import argparse
@@ -10,7 +10,7 @@ import datetime as _dt
 import hashlib as _hash
 import os
 from pathlib import Path
-from typing import Any, Dict
+from typing import Any, Dict, List
 
 import aiohttp
 import aiosqlite
@@ -20,7 +20,7 @@ from dotenv import load_dotenv
 from fastapi import FastAPI, HTTPException
 from trafilatura import extract
 
-# Optional GPT summaries
+# ── Optional GPT summaries ─────────────────────────────────────
 try:
     import openai  # type: ignore
 except ModuleNotFoundError:  # pragma: no cover
@@ -28,34 +28,27 @@ except ModuleNotFoundError:  # pragma: no cover
 
 load_dotenv()
 
-# ──────────────────────────── CONFIG ────────────────────────────
+# ── Config ────────────────────────────────────────────────────
 _CFG_PATH = Path(__file__).with_name("config.yaml")
-_DEFAULT_CFG: dict[str, Any] = {
+_DEFAULT_CFG: Dict[str, Any] = {
     "feeds": [
-        # Mainstream
         "https://www.espn.com/college-sports/rss",
         "https://sports.yahoo.com/college/rss",
         "https://www.si.com/college/.rss",
         "https://feeds.feedburner.com/CollegeSportsNews",
-        # National papers
         "https://rssfeeds.usatoday.com/UsatodaycomCollegeSports-TopStories",
         "https://feeds.latimes.com/latimes/sports/college",
-        # Business / legal
         "https://frontofficesports.com/feed/",
         "https://www.sportsbusinessjournal.com/RSS/News.aspx",
         "https://sportico.com/feed/",
         "https://www.sportslawblog.com/atom.xml",
-        # NIL‑focused / recruiting
         "https://www.on3.com/nil/feed/",
         "https://www.on3.com/transfer-portal/feed/",
         "https://www.on3.com/high-school/feed/",
         "https://247sports.com/rss/",
-        # Governing bodies
         "https://www.ncaa.org/rss.xml",
-        # Google News queries
         "https://news.google.com/rss/search?q=NIL+college+athlete&hl=en-US&gl=US&ceid=US:en",
         "https://news.google.com/rss/search?q=NIL+high+school+athlete&hl=en-US&gl=US&ceid=US:en",
-        # Twitter/X via RSSHub (may fail occasionally)
         "https://rsshub.app/twitter/user/On3NIL",
         "https://rsshub.app/twitter/user/SportsBizMiss",
         "https://rsshub.app/twitter/user/DarrenHeitner",
@@ -63,25 +56,16 @@ _DEFAULT_CFG: dict[str, Any] = {
         "https://rsshub.app/twitter/user/jeremydarlow",
     ],
     "keywords": [
-        # Core NIL
         "nil", "name image likeness", "collective", "booster",
         "endorsement", "sponsorship", "brand deal", "marketing",
         "royalty", "licensing", "revenue share", "donor",
-        # Money words
         "deal", "contract", "agreement", "payout", "valuation",
         "funding", "investment", "capital", "million", "billion",
-        # Legal / policy
         "state law", "federal bill", "compliance", "guideline",
         "regulation", "antitrust", "lawsuit", "injunction", "settlement",
-        # People
         "athlete", "student-athlete", "recruit", "prospect", "signee",
-        "high school", "prep", "junior", "coach", "administrator",
-        # Processes
-        "transfer portal", "transfer window", "eligibility",
-        # Orgs / conferences
-        "ncaa", "sec", "big ten", "acc", "big 12", "pac-12",
-        # Known collectives examples
-        "gator collective", "one illinois nil", "texasonefund",
+        "high school", "prep", "coach", "administrator",
+        "transfer portal", "eligibility", "ncaa", "sec", "big ten",
     ],
     "db_path": "nil_news.db",
     "crawl_interval_min": 5,
@@ -99,9 +83,9 @@ _DEFAULT_CFG: dict[str, Any] = {
 
 if not _CFG_PATH.exists():
     _CFG_PATH.write_text(yaml.safe_dump(_DEFAULT_CFG))
-CFG: dict[str, Any] = _DEFAULT_CFG | yaml.safe_load(_CFG_PATH.read_text())
+CFG: Dict[str, Any] = _DEFAULT_CFG | yaml.safe_load(_CFG_PATH.read_text())
 
-# ──────────────────────── DATABASE SETUP ─────────────────────────
+# ── Database ────────────────────────────────────────────────
 _SCHEMA_SQL = """
 CREATE TABLE IF NOT EXISTS stories (
     id         TEXT PRIMARY KEY,
@@ -124,27 +108,26 @@ async def init_db() -> aiosqlite.Connection:
         await db.commit()
     return db
 
-# ────────────────────────── SUMMARIES ───────────────────────────
+# ── Summaries ───────────────────────────────────────────────
 _PROMPT = CFG["openai"]["prompt_prefix"]
 
 def _summarise(text: str) -> str:
-    """Return GPT summary if key set; else fallback excerpt."""
     if openai is None or os.getenv("OPENAI_API_KEY") is None:
         return (text[:300].replace("\n", " ") + "…") if len(text) > 300 else text
     try:
         resp = openai.ChatCompletion.create(
             model=CFG["openai"]["model"],
             messages=[{"role": "user", "content": f"{_PROMPT}\n\n{text}"}],
-            max_tokens=CFG["openai"].get("max_tokens", 128),
-            temperature=CFG["openai"].get("temperature", 0.3),
+            max_tokens=CFG["openai"]["max_tokens"],
+            temperature=CFG["openai"]["temperature"],
         )
         return resp.choices[0].message.content.strip()
     except Exception as e:  # pragma: no cover
         print("[warn] OpenAI summarisation failed:", e)
         return (text[:300].replace("\n", " ") + "…") if len(text) > 300 else text
 
-# ────────────────────────── CRAWLER ─────────────────────────────
-_USER_AGENT = "NILNewsBot/2.0 (+https://github.com/example/nil-news)"
+# ── Crawler ────────────────────────────────────────────────
+_USER_AGENT = "NILNewsBot/2.2 (+https://github.com/example/nil-news)"
 _TIMEOUT = aiohttp.ClientTimeout(total=10)
 
 class NILCrawler:
@@ -199,11 +182,102 @@ class NILCrawler:
         print("[+] stored:", entry.get("title"))
 
     async def crawl_once(self):
-        """Fetch all feeds once and process entries."""
-        tasks: list[asyncio.Task] = []
+        """Fetch feeds once and process each entry."""
+        tasks: List[_asyncio.Task] = []
         for feed in CFG["feeds"]:
             parsed = feedparser.parse(feed)
             if parsed.bozo:
                 print(f"[warn] bad feed: {feed}")
-                continue  # skip invalid feed
-            tasks.extend(self._process
+                continue
+            tasks.extend(self._process_entry(e) for e in parsed.entries)
+        if tasks:
+            await _asyncio.gather(*tasks)
+
+# ── Scheduler loop ──────────────────────────────────────────
+async def continuous_crawl(interval_min: int):
+    db = await init_db()
+    crawler = NILCrawler(db)
+    try:
+        while True:
+            start = _dt.datetime.utcnow()
+            await crawler.crawl_once()
+            elapsed = (_dt.datetime.utcnow() - start).total_seconds()
+            await _asyncio.sleep(max(0, interval_min * 60 - elapsed))
+    except asyncio.CancelledError:
+        pass
+    finally:
+        await db.close()
+
+# ── FastAPI app ────────────────────────────────────────────
+app = FastAPI(title="NIL News API", version="1.0.0")
+
+@app.on_event("startup")
+async def _startup():
+    app.state.db = await init_db()
+    # launch crawler loop
+    app.state.crawl_task = _asyncio.create_task(
+        continuous_crawl(CFG["crawl_interval_min"])
+    )
+
+@app.on_event("shutdown")
+async def _shutdown():
+    app.state.crawl_task.cancel()
+    await app.state.db.close()
+
+@app.get("/")
+async def root():
+    return {
+        "message": "Welcome to NIL News API",
+        "endpoints": ["/summaries", "/latest"],
+    }
+
+@app.get("/summaries")
+async def summaries(limit: int = 50):
+    if limit > 500:
+        raise HTTPException(400, "limit too high")
+    sql = """
+        SELECT title, url, published, brief FROM stories
+        ORDER BY COALESCE(published, crawled_at) DESC LIMIT ?
+    """
+    async with app.state.db.execute(sql, (limit,)) as cur:
+        rows = await cur.fetchall()
+    return [dict(zip(("title", "url", "published", "brief"), r)) for r in rows]
+
+@app.get("/latest")
+async def latest():
+    sql = """
+        SELECT title, url, published, brief FROM stories
+        ORDER BY COALESCE(published, crawled_at) DESC LIMIT 1
+    """
+    async with app.state.db.execute(sql) as cur:
+        row = await cur.fetchone()
+    if not row:
+        raise HTTPException(404, "no stories yet")
+    return dict(zip(("title", "url", "published", "brief"), row))
+
+# ── CLI entrypoint ─────────────────────────────────────────
+if __name__ == "__main__":
+    p = argparse.ArgumentParser(description="NIL News (crawler + API)")
+    sub = p.add_subparsers(dest="cmd", required=True)
+
+    crawl_p = sub.add_parser("crawl", help="run continuous crawler")
+    crawl_p.add_argument("--interval", type=int,
+                         default=CFG["crawl_interval_min"],
+                         help="minutes between crawl cycles")
+
+    serve_p = sub.add_parser("serve", help="launch JSON API")
+    serve_p.add_argument("--host", default="0.0.0.0")
+    serve_p.add_argument("--port", type=int, default=8000)
+
+    args = p.parse_args()
+    if args.cmd == "crawl":
+        _asyncio.run(continuous_crawl(args.interval))
+    elif args.cmd == "serve":
+        import uvicorn
+        uvicorn.run(
+            app,
+            host=args.host,
+            port=args.port,
+            log_level="info",
+        )
+# ======= END nil_news.py =======
