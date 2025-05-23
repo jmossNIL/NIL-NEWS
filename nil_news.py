@@ -198,6 +198,15 @@ async def _startup():
 async def _shutdown():
     await app.state.db.close()
 
+@app.get("/")
+async def root():
+    return {
+        "message": "Welcome to NIL News API",
+        "endpoints": ["/summaries", "/latest"]
+    }
+
+    await app.state.db.close()
+
 @app.get("/summaries")
 async def summaries(limit: int = 50):
     if limit > 500:
