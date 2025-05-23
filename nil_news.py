@@ -1,8 +1,8 @@
 # ======= BEGIN nil_news.py =======
 #!/usr/bin/env python3
 """
-nil_news.py – Crawl NIL-related news, optionally summarise with GPT,
-store in SQLite, and serve JSON endpoints (/summaries, /latest).
+nil_news.py — crawl NIL-related news, optionally summarise with GPT,
+store in SQLite, and expose JSON endpoints (/summaries, /latest).
 """
 from __future__ import annotations
 
@@ -74,13 +74,12 @@ _DEFAULT_CFG: Dict[str, Any] = {
     },
 }
 
-# write default config once
+# create default file on first run
 if not _CFG_PATH.exists():
     _CFG_PATH.write_text(yaml.safe_dump(_DEFAULT_CFG))
 
-# load user overrides safely
-_loaded_cfg = yaml.safe_load(_CFG_PATH.read_text()) or {}
-CFG: Dict[str, Any] = {**_DEFAULT_CFG, **_loaded_cfg}
+# merge user overrides (may be empty)
+CFG: Dict[str, Any] = {**_DEFAULT_CFG, **(yaml.safe_load(_CFG_PATH.read_text()) or {})}
 
 # ── Database -------------------------------------------------------
 _SCHEMA_SQL = """
@@ -124,7 +123,7 @@ def _summarise(text: str) -> str:
         return (text[:300].replace("\n", " ") + "…") if len(text) > 300 else text
 
 # ── Crawler --------------------------------------------------------
-_USER_AGENT = "NILNewsBot/3.3 (+https://github.com/example/nil-news)"
+_USER_AGENT = "NILNewsBot/3.4 (+https://github.com/example/nil-news)"
 _TIMEOUT = aiohttp.ClientTimeout(total=10)
 
 class NILCrawler:
@@ -227,10 +226,12 @@ async def _ping() -> Response:
 # Root
 @app.get("/")
 async def root():
-    return {"message": "Welcome to NIL News API",
-            "endpoints": ["/summaries", "/latest"]}
+    return {
+        "message": "Welcome to NIL News API",
+        "endpoints": ["/summaries", "/latest"],
+    }
 
-# Summaries
+# Summaries (≤ 5 000)
 @app.get("/summaries")
 async def summaries(limit: int = 50):
     if limit > 5000:
