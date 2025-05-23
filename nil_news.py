@@ -1,7 +1,9 @@
 # ======= BEGIN nil_news.py =======
 #!/usr/bin/env python3
-"""nil_news.py – Crawl NIL‑related news, optionally summarise with GPT, store in
-SQLite, and expose JSON endpoints at /summaries and /latest."""
+"""
+nil_news.py – crawl NIL news, optionally summarise with GPT, store in SQLite,
+and expose JSON endpoints /summaries and /latest.
+"""
 from __future__ import annotations
 
 import argparse
@@ -20,10 +22,10 @@ from dotenv import load_dotenv
 from fastapi import FastAPI, HTTPException, Response
 from trafilatura import extract
 
-# ── Optional GPT ---------------------------------------------------
+# ── GPT (optional) -------------------------------------------------
 try:
     import openai  # type: ignore
-except ModuleNotFoundError:  # pragma: no cover
+except ModuleNotFoundError:
     openai = None  # type: ignore
 
 load_dotenv()
@@ -87,6 +89,7 @@ CREATE TABLE IF NOT EXISTS stories (
     crawled_at TEXT
 );
 """
+
 async def init_db() -> aiosqlite.Connection:
     db = await aiosqlite.connect(CFG["db_path"])
     await db.execute(_SCHEMA_SQL)
@@ -105,10 +108,10 @@ def _summarise(text: str) -> str:
         return (text[:300].replace("\n", " ") + "…") if len(text) > 300 else text
     try:
         resp = openai.ChatCompletion.create(
-            model=CFG["openai"].get("model", "gpt-3.5-turbo"),
+            model=CFG["openai"]["model"],
             messages=[{"role": "user", "content": f"{_PROMPT}\n\n{text}"}],
-            max_tokens=CFG["openai"].get("max_tokens", 128),
-            temperature=CFG["openai"].get("temperature", 0.3),
+            max_tokens=CFG["openai"]["max_tokens"],
+            temperature=CFG["openai"]["temperature"],
         )
         return resp.choices[0].message.content.strip()
     except Exception as e:
@@ -116,7 +119,7 @@ def _summarise(text: str) -> str:
         return (text[:300].replace("\n", " ") + "…") if len(text) > 300 else text
 
 # ── Crawler --------------------------------------------------------
-_USER_AGENT = "NILNewsBot/3.2 (+https://github.com/example/nil-news)"
+_USER_AGENT = "NILNewsBot/3.3 (+https://github.com/example/nil-news)"
 _TIMEOUT = aiohttp.ClientTimeout(total=10)
 
 class NILCrawler:
@@ -196,9 +199,22 @@ async def continuous_crawl(interval_min: int):
     finally:
         await db.close()
 
-# ── FastAPI --------------------------------------------------------
-app = FastAPI(title="NIL News API", version
-# Health-check so Render sees 200 instead of 405
+# ── FastAPI app ----------------------------------------------------
+app = FastAPI(title="NIL News API", version="1.0.0")
+
+@app.on_event("startup")
+async def _startup():
+    app.state.db = await init_db()
+    app.state.crawl_task = _asyncio.create_task(
+        continuous_crawl(CFG["crawl_interval_min"])
+    )
+
+@app.on_event("shutdown")
+async def _shutdown():
+    app.state.crawl_task.cancel()
+    await app.state.db.close()
+
+# Health-check
 @app.head("/")
 async def _ping() -> Response:
     return Response(status_code=200)
@@ -209,50 +225,31 @@ async def root():
     return {"message": "Welcome to NIL News API",
             "endpoints": ["/summaries", "/latest"]}
 
-# Summaries (up to 5 000)
+# Summaries (limit ≤ 5 000)
 @app.get("/summaries")
 async def summaries(limit: int = 50):
     if limit > 5000:
         raise HTTPException(400, "limit too high")
     sql = """
-        SELECT title, url, published, brief FROM stories
-        ORDER BY COALESCE(published, crawled_at) DESC LIMIT ?
+        SELECT title, url, published, brief
+        FROM stories
+        ORDER BY COALESCE(published, crawled_at) DESC
+        LIMIT ?
     """
     async with app.state.db.execute(sql, (limit,)) as cur:
         rows = await cur.fetchall()
     return [dict(zip(("title", "url", "published", "brief"), r)) for r in rows]
 
-# Latest
+# Latest story
 @app.get("/latest")
 async def latest():
     sql = """
-        SELECT title, url, published, brief FROM stories
-        ORDER BY COALESCE(published, crawled_at) DESC LIMIT 1
+        SELECT title, url, published, brief
+        FROM stories
+        ORDER BY COALESCE(published, crawled_at) DESC
+        LIMIT 1
     """
     async with app.state.db.execute(sql) as cur:
         row = await cur.fetchone()
     if not row:
-        raise HTTPException(404, "no stories yet")
-    return dict(zip(("title", "url", "published", "brief"), row))
-
-# ── CLI entrypoint: crawler or API ────────────────────────────────
-if __name__ == "__main__":
-    parser = argparse.ArgumentParser(description="NIL News (crawler + API)")
-    sub = parser.add_subparsers(dest="cmd", required=True)
-
-    crawl_p = sub.add_parser("crawl", help="run continuous crawler")
-    crawl_p.add_argument("--interval", type=int,
-                         default=CFG["crawl_interval_min"],
-                         help="minutes between crawl cycles")
-
-    serve_p = sub.add_parser("serve", help="launch JSON API")
-    serve_p.add_argument("--host", default="0.0.0.0")
-    serve_p.add_argument("--port", type=int, default=8000)
-
-    args = parser.parse_args()
-    if args.cmd == "crawl":
-        _asyncio.run(continuous_crawl(args.interval))
-    elif args.cmd == "serve":
-        import uvicorn
-        uvicorn.run(app, host=args.host, port=args.port, log_level="info")
-# ======= END nil_news.py =======
+        raise HTTPException
