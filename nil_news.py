@@ -247,24 +247,29 @@ async def root():
 async def summaries(limit: int = 50):
     if limit > 500:
         raise HTTPException(400, "limit too high")
-    async with app.state.db.execute(
-        "SELECT title, url, published, brief FROM stories
-        ORDER BY COALESCE(published, crawled_at) DESC LIMIT ?",
-        (limit,),
-    ) as cur:
+    sql = (
+        """
+        SELECT title, url, published, brief FROM stories
+        ORDER BY COALESCE(published, crawled_at) DESC LIMIT ?
+        """
+    )
+    async with app.state.db.execute(sql, (limit,)) as cur:
         rows = await cur.fetchall()
-    return [dict(zip(("title", "url", "published", "brief"), r)) for r in rows]
+    return [dict(zip(("title", "url", "published", "brief"), r)) for r in rows](zip(("title", "url", "published", "brief"), r)) for r in rows]
 
 @app.get("/latest")
 async def latest():
-    async with app.state.db.execute(
-        "SELECT title, url, published, brief FROM stories
-        ORDER BY COALESCE(published, crawled_at) DESC LIMIT 1",
-    ) as cur:
+    sql = (
+        """
+        SELECT title, url, published, brief FROM stories
+        ORDER BY COALESCE(published, crawled_at) DESC LIMIT 1
+        """
+    )
+    async with app.state.db.execute(sql) as cur:
         row = await cur.fetchone()
     if not row:
         raise HTTPException(404, "no stories yet")
-    return dict(zip(("title", "url", "published", "brief"), row))
+    return dict(zip(("title", "url", "published", "brief"), row))(zip(("title", "url", "published", "brief"), row))
 
 # ── CLI entrypoint ───────────────────────────────────────
 if __name__ == "__main__":
