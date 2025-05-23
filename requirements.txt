@@ -1,0 +1,12 @@
+# ===== BEGIN requirements.txt =====
+aiohttp
+aiosqlite
+feedparser
+trafilatura
+fastapi
+uvicorn
+python-dotenv
+pyyaml
+openai           # optional — delete if you won’t use GPT summaries
+dumb-init        # tiny PID 1 helper for Docker
+# ===== END requirements.txt =====
