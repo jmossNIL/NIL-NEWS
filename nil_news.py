@@ -74,11 +74,11 @@ _DEFAULT_CFG: Dict[str, Any] = {
     },
 }
 
-# create default file on first run
+# write default file if missing
 if not _CFG_PATH.exists():
     _CFG_PATH.write_text(yaml.safe_dump(_DEFAULT_CFG))
 
-# merge user overrides (may be empty)
+# load overrides safely
 CFG: Dict[str, Any] = {**_DEFAULT_CFG, **(yaml.safe_load(_CFG_PATH.read_text()) or {})}
 
 # ── Database -------------------------------------------------------
@@ -226,10 +226,8 @@ async def _ping() -> Response:
 # Root
 @app.get("/")
 async def root():
-    return {
-        "message": "Welcome to NIL News API",
-        "endpoints": ["/summaries", "/latest"],
-    }
+    return {"message": "Welcome to NIL News API",
+            "endpoints": ["/summaries", "/latest"]}
 
 # Summaries (≤ 5 000)
 @app.get("/summaries")
@@ -252,4 +250,7 @@ async def latest():
     sql = """
         SELECT title, url, published, brief
         FROM stories
-        ORDER BY COALESCE
+        ORDER BY COALESCE(published, crawled_at) DESC
+        LIMIT 1
+    """
+    async with app.state.db
