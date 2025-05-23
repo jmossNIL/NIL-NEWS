@@ -74,7 +74,6 @@ CREATE TABLE IF NOT EXISTS stories (
 );
 """
 async def init_db() -> aiosqlite.Connection:
-    """Init SQLite DB and add `brief` column if upgrading."""
     db = await aiosqlite.connect(CFG["db_path"])
     await db.execute(_SCHEMA_SQL)
     async with db.execute("PRAGMA table_info(stories)") as cur:
@@ -115,9 +114,7 @@ class NILCrawler:
         return any(k in txt.lower() for k in self.keywords)
 
     async def _exists(self, story_id: str) -> bool:
-        async with self.db.execute(
-            "SELECT 1 FROM stories WHERE id=?", (story_id,)
-        ) as cur:
+        async with self.db.execute("SELECT 1 FROM stories WHERE id=?", (story_id,)) as cur:
             return await cur.fetchone() is not None
 
     async def _fetch_html(self, url: str) -> str | None:
@@ -137,14 +134,12 @@ class NILCrawler:
         story_id = _hash.sha256(url.encode()).hexdigest()
         if await self._exists(story_id):
             return
-
         html = await self._fetch_html(url)
         if not html:
             return
         text = extract(html, include_comments=False, include_tables=False) or html
         if not self._is_relevant(text):
             return
-
         brief = _summarise(text)
         await self.db.execute(
             "INSERT INTO stories VALUES (?,?,?,?,?,?,?)",
@@ -214,9 +209,9 @@ async def summaries(limit: int = 50):
         (limit,),
     ) as cur:
         rows = await cur.fetchall()
-    return [
-        dict(zip(("title", "url", "published", "brief"), r)) for r in rows
-    ]
+    return [dict(zip(("title", "url", "published", "brief"), r)) for r in rows]
 
 @app.get("/latest")
 async def latest():
+    async with app.state.db.execute(
+        "SELECT title, url, published, brief FROM stories ORDER BY crawled_at DESC LIMIT 1"
