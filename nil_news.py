@@ -93,8 +93,8 @@ def _summarise(text: str) -> str:
         resp = openai.ChatCompletion.create(
             model=CFG["openai"]["model"],
             messages=[{"role": "user", "content": f"{_PROMPT}\n\n{text}"}],
-            max_tokens=CFG["openai"]["max_tokens"],
-            temperature=CFG["openai"]["temperature"],
+            max_tokens=CFG["openai"].get("max_tokens", 128),
+            temperature=CFG["openai"].get("temperature", 0.3),
         )
         return resp.choices[0].message.content.strip()
     except Exception as e:
@@ -214,4 +214,39 @@ async def summaries(limit: int = 50):
 @app.get("/latest")
 async def latest():
     async with app.state.db.execute(
-        "SELECT title, url, published,
+        "SELECT title, url, published, brief FROM stories ORDER BY crawled_at DESC LIMIT 1",
+    ) as cur:
+        row = await cur.fetchone()
+    if not row:
+        raise HTTPException(404, "no stories yet")
+    return dict(zip(("title", "url", "published", "brief"), row))
+
+# ── CLI entrypoint ───────────────────────────────────────
+if __name__ == "__main__":
+    p = argparse.ArgumentParser(description="NIL News (crawler + API)")
+    sub = p.add_subparsers(dest="cmd", required=True)
+
+    crawl_p = sub.add_parser("crawl", help="run continuous crawler")
+    crawl_p.add_argument(
+        "--interval",
+        type=int,
+        default=CFG["crawl_interval_min"],
+        help="minutes between crawl cycles",
+    )
+
+    serve_p = sub.add_parser("serve", help="launch JSON API")
+    serve_p.add_argument("--host", default="0.0.0.0")
+    serve_p.add_argument("--port", type=int, default=8000)
+
+    args = p.parse_args()
+    if args.cmd == "crawl":
+        _asyncio.run(continuous_crawl(args.interval))
+    elif args.cmd == "serve":
+        import uvicorn
+        uvicorn.run(
+            app,
+            host=args.host,
+            port=args.port,
+            log_level="info",
+        )
+# ======= END nil_news.py =======
