@@ -40,7 +40,7 @@ KEYWORDS = [
     "house v ncaa", "opendorse", "marketpryce",
 ]
 
-DB_PATH = "nil_news.db"
+DB_PATH = "/tmp/nil_news.db"  # Railway-friendly path
 
 # Simple database setup
 async def init_db():
@@ -64,8 +64,8 @@ async def init_db():
         """)
         
         await db.commit()
+        await db.close()  # Close the connection
         print("[info] Database initialized successfully")
-        return db
         
     except Exception as e:
         print(f"[error] Database initialization failed: {e}")
@@ -139,21 +139,34 @@ def simple_summarize(text: str) -> str:
 # Simple crawler
 async def crawl_feeds():
     """Simple, reliable feed crawling."""
+    global crawl_in_progress
+    
+    if crawl_in_progress:
+        print("[info] Crawl already in progress, skipping")
+        return
+    
+    crawl_in_progress = True
     print("[info] Starting feed crawl...")
     
     try:
-        db = await init_db()
+        # Initialize database connection for this crawl
+        await init_db()
+        db = await aiosqlite.connect(DB_PATH)
         stories_added = 0
         
-        async with httpx.AsyncClient(timeout=20.0) as client:
+        async with httpx.AsyncClient(timeout=10.0, headers={'User-Agent': 'NIL-News-Bot/1.0'}) as client:
             for feed_url in FEEDS:
                 try:
                     print(f"[info] Crawling {feed_url}")
                     response = await client.get(feed_url)
+                    if response.status_code != 200:
+                        print(f"[warn] HTTP {response.status_code} for {feed_url}")
+                        continue
+                        
                     feed = feedparser.parse(response.text)
                     
-                    if feed.bozo:
-                        print(f"[warn] Problematic feed: {feed_url}")
+                    if not hasattr(feed, 'entries') or not feed.entries:
+                        print(f"[warn] No entries found in {feed_url}")
                         continue
                     
                     for entry in feed.entries[:5]:  # Limit per feed
@@ -169,6 +182,8 @@ async def crawl_feeds():
         
     except Exception as e:
         print(f"[error] Crawl failed: {e}")
+    finally:
+        crawl_in_progress = False
 
 async def process_entry(entry: dict, db) -> bool:
     """Simple, reliable entry processing."""
@@ -185,13 +200,22 @@ async def process_entry(entry: dict, db) -> bool:
         
         title = entry.get("title", "No title")
         
-        # Get content (with fallback)
+        # Get content (with better fallback)
+        text = ""
         try:
-            async with httpx.AsyncClient(timeout=10.0) as client:
+            async with httpx.AsyncClient(timeout=8.0, headers={'User-Agent': 'NIL-News-Bot/1.0'}) as client:
                 response = await client.get(url)
-                text = extract(response.text) or response.text[:1000]
+                if response.status_code == 200:
+                    text = extract(response.text) or response.text[:1000]
         except:
+            pass
+        
+        # Fallback to feed content
+        if not text:
             text = entry.get("summary", "") + " " + entry.get("description", "")
+        
+        if not text:
+            return False  # No content to work with
         
         # Check relevance
         if not is_relevant(title + " " + text):
@@ -437,7 +461,14 @@ async def dashboard():
 @app.get("/api/summaries")
 async def get_summaries(limit: int = 50):
     """Get story summaries with bulletproof error handling."""
+    print(f"[info] API request for {limit} summaries")
+    
     try:
+        # Check if database exists
+        if not os.path.exists(DB_PATH):
+            print("[warn] Database doesn't exist yet")
+            return []
+        
         db = await aiosqlite.connect(DB_PATH)
         
         # Simple, reliable query
@@ -460,13 +491,13 @@ async def get_summaries(limit: int = 50):
         for row in rows:
             try:
                 story = {
-                    "title": row[0] or "No Title",
-                    "url": row[1] or "",
-                    "published": row[2] or "",
-                    "brief": row[3] or "No summary available",
-                    "source": row[4] or "Unknown",
-                    "category": row[5] or "General",
-                    "crawled_at": row[6] or ""
+                    "title": str(row[0] or "No Title"),
+                    "url": str(row[1] or ""),
+                    "published": str(row[2] or ""),
+                    "brief": str(row[3] or "No summary available"),
+                    "source": str(row[4] or "Unknown"),
+                    "category": str(row[5] or "General"),
+                    "crawled_at": str(row[6] or "")
                 }
                 stories.append(story)
             except Exception as e:
@@ -478,6 +509,8 @@ async def get_summaries(limit: int = 50):
         
     except Exception as e:
         print(f"[error] Database query failed: {e}")
+        import traceback
+        traceback.print_exc()
         return []
 
 @app.post("/api/crawl")
@@ -504,13 +537,22 @@ async def health():
     except Exception as e:
         return {"status": "error", "message": str(e)}
 
-# Background crawling
+# Background crawling with crawl lock
+crawl_in_progress = False
+
 async def background_crawler():
     """Simple background crawler."""
+    global crawl_in_progress
+    
+    # Do first crawl immediately
+    if not crawl_in_progress:
+        await crawl_feeds()
+    
     while True:
         try:
             await asyncio.sleep(300)  # Wait 5 minutes
-            await crawl_feeds()
+            if not crawl_in_progress:
+                await crawl_feeds()
         except Exception as e:
             print(f"[error] Background crawler failed: {e}")
             await asyncio.sleep(60)
@@ -519,7 +561,7 @@ async def background_crawler():
 async def startup():
     """Start background tasks."""
     try:
-        await init_db()
+        await init_db()  # Just initialize, don't store connection
         asyncio.create_task(background_crawler())
         print("[info] Application started successfully")
     except Exception as e:
