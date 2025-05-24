@@ -487,23 +487,8 @@ HTML_TEMPLATE = """
         <div id="twitter-content" class="tab-content hidden">
             <div class="bg-white rounded-lg shadow-md p-6 mb-6">
                 <h3 class="text-xl font-bold mb-4">NIL Twitter Accounts to Follow</h3>
-                <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-                    ${NIL_TWITTER_ACCOUNTS.map(account => `
-                        <div class="border border-gray-200 rounded-lg p-4 hover:shadow-md transition-shadow">
-                            <div class="flex items-start justify-between mb-2">
-                                <h4 class="font-bold text-blue-600">${account.handle}</h4>
-                                <a href="${account.url}" target="_blank" class="text-blue-500 hover:text-blue-700">
-                                    <i class="fab fa-twitter"></i>
-                                </a>
-                            </div>
-                            <p class="font-medium text-gray-800 mb-1">${account.name}</p>
-                            <p class="text-gray-600 text-sm">${account.description}</p>
-                            <a href="${account.url}" target="_blank" 
-                               class="inline-block mt-2 bg-blue-500 hover:bg-blue-600 text-white px-3 py-1 rounded text-sm">
-                                Follow
-                            </a>
-                        </div>
-                    `).join('')}
+                <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4" id="twitter-accounts-grid">
+                    <!-- Twitter accounts will be inserted here -->
                 </div>
             </div>
         </div>
@@ -554,7 +539,7 @@ HTML_TEMPLATE = """
         function showTab(tabName) {
             // Hide all tab contents
             document.querySelectorAll('.tab-content').forEach(el => el.classList.add('hidden'));
-            document.querySelectorAll('[id$="-tab"]').forEach(el => el.classList.remove('tab-active', 'px-6', 'py-3', 'font-medium'));
+            document.querySelectorAll('[id$="-tab"]').forEach(el => el.classList.remove('tab-active'));
             
             // Show selected tab
             document.getElementById(tabName + '-content').classList.remove('hidden');
@@ -562,11 +547,44 @@ HTML_TEMPLATE = """
             
             currentTab = tabName;
             
-            if (tabName === 'research') {
+            if (tabName === 'twitter') {
+                loadTwitterAccounts();
+            } else if (tabName === 'research') {
                 loadResearchData();
             } else if (tabName === 'analytics') {
                 loadAnalytics();
             }
+        }
+
+        function loadTwitterAccounts() {
+            const twitterAccounts = [
+                {handle: "@NILWire", name: "NIL Wire", description: "Breaking NIL news and analysis", url: "https://twitter.com/NILWire"},
+                {handle: "@On3NIL", name: "On3 NIL", description: "NIL news from On3", url: "https://twitter.com/On3NIL"},
+                {handle: "@FrontOfficeSpts", name: "Front Office Sports", description: "Sports business news including NIL", url: "https://twitter.com/FrontOfficeSpts"},
+                {handle: "@OpendorseTeam", name: "Opendorse", description: "NIL marketplace platform", url: "https://twitter.com/OpendorseTeam"},
+                {handle: "@MarketPryce", name: "MarketPryce", description: "NIL marketplace and analytics", url: "https://twitter.com/MarketPryce"},
+                {handle: "@NILStore", name: "NIL Store", description: "Athlete merchandise and NIL deals", url: "https://twitter.com/NILStore"},
+                {handle: "@TheAthletic", name: "The Athletic", description: "Sports journalism including NIL coverage", url: "https://twitter.com/TheAthletic"},
+                {handle: "@SInow", name: "Sports Illustrated", description: "Sports news including NIL", url: "https://twitter.com/SInow"}
+            ];
+
+            const container = document.getElementById('twitter-accounts-grid');
+            container.innerHTML = twitterAccounts.map(account => `
+                <div class="border border-gray-200 rounded-lg p-4 hover:shadow-md transition-shadow">
+                    <div class="flex items-start justify-between mb-2">
+                        <h4 class="font-bold text-blue-600">${account.handle}</h4>
+                        <a href="${account.url}" target="_blank" class="text-blue-500 hover:text-blue-700">
+                            <i class="fab fa-twitter"></i>
+                        </a>
+                    </div>
+                    <p class="font-medium text-gray-800 mb-1">${account.name}</p>
+                    <p class="text-gray-600 text-sm">${account.description}</p>
+                    <a href="${account.url}" target="_blank" 
+                       class="inline-block mt-2 bg-blue-500 hover:bg-blue-600 text-white px-3 py-1 rounded text-sm">
+                        Follow
+                    </a>
+                </div>
+            `).join('');
         }
 
         async function loadStories() {
@@ -787,64 +805,111 @@ HTML_TEMPLATE = """
 @app.get("/", response_class=HTMLResponse)
 async def dashboard():
     """Enhanced web dashboard with tabs."""
-    # Replace Twitter accounts in template
-    twitter_accounts_js = json.dumps(NIL_TWITTER_ACCOUNTS)
-    html = HTML_TEMPLATE.replace('${NIL_TWITTER_ACCOUNTS.map(account =>', 
-                                f'{twitter_accounts_js}.map(account =>')
+    # Create Twitter accounts HTML
+    twitter_html = ""
+    for account in NIL_TWITTER_ACCOUNTS:
+        twitter_html += f"""
+            <div class="border border-gray-200 rounded-lg p-4 hover:shadow-md transition-shadow">
+                <div class="flex items-start justify-between mb-2">
+                    <h4 class="font-bold text-blue-600">{account['handle']}</h4>
+                    <a href="{account['url']}" target="_blank" class="text-blue-500 hover:text-blue-700">
+                        <i class="fab fa-twitter"></i>
+                    </a>
+                </div>
+                <p class="font-medium text-gray-800 mb-1">{account['name']}</p>
+                <p class="text-gray-600 text-sm">{account['description']}</p>
+                <a href="{account['url']}" target="_blank" 
+                   class="inline-block mt-2 bg-blue-500 hover:bg-blue-600 text-white px-3 py-1 rounded text-sm">
+                    Follow
+                </a>
+            </div>
+        """
+    
+    # Replace in template
+    html = HTML_TEMPLATE.replace(
+        '${NIL_TWITTER_ACCOUNTS.map(account => `', 
+        twitter_html.replace('`', '')
+    ).replace('`).join(\'\')}', '')
+    
     return html
 
 @app.get("/api/summaries")
 async def get_summaries(limit: int = 100):
     """Get enhanced story summaries."""
-    db = await aiosqlite.connect(DB_PATH)
-    
-    async with db.execute("""
-        SELECT title, url, published, brief, source, category, crawled_at,
-               relevance_score, sentiment, key_entities, breaking_news,
-               CASE 
-                   WHEN published IS NOT NULL AND published != '' 
-                   THEN datetime(published) 
-                   ELSE datetime(crawled_at) 
-               END as sort_date
-        FROM stories
-        ORDER BY 
-            -- Breaking news from last 24 hours gets top priority
-            CASE WHEN breaking_news = 1 AND sort_date > datetime('now', '-1 day') THEN 1000 ELSE 0 END +
-            -- Recency bonus: stories from last 24 hours get 50 points, last week gets 20 points
-            CASE 
-                WHEN sort_date > datetime('now', '-1 day') THEN 50
-                WHEN sort_date > datetime('now', '-3 days') THEN 30  
-                WHEN sort_date > datetime('now', '-7 days') THEN 20
-                WHEN sort_date > datetime('now', '-14 days') THEN 10
-                ELSE 0 
-            END +
-            -- Add relevance score (0-15 points)
-            COALESCE(relevance_score, 0)
-            DESC,
-            -- Secondary sort by actual date for ties
-            sort_date DESC
-        LIMIT ?
-    """, (limit,)) as cur:
-        rows = await cur.fetchall()
-    
-    await db.close()
-    
-    return [
-        {
-            "title": row[0],
-            "url": row[1], 
-            "published": row[2],
-            "brief": row[3],
-            "source": row[4],
-            "category": row[5],
-            "crawled_at": row[6],
-            "relevance_score": row[7],
-            "sentiment": row[8],
-            "key_entities": row[9],
-            "breaking_news": bool(row[10])
-        }
-        for row in rows
-    ]
+    try:
+        db = await aiosqlite.connect(DB_PATH)
+        
+        async with db.execute("""
+            SELECT title, url, published, brief, source, category, crawled_at,
+                   relevance_score, sentiment, key_entities, breaking_news
+            FROM stories
+            ORDER BY 
+                -- Breaking news from last 24 hours gets top priority
+                CASE WHEN breaking_news = 1 AND 
+                    CASE 
+                        WHEN published IS NOT NULL AND published != '' 
+                        THEN datetime(published) 
+                        ELSE datetime(crawled_at) 
+                    END > datetime('now', '-1 day') THEN 1000 ELSE 0 END +
+                -- Recency bonus
+                CASE 
+                    WHEN CASE 
+                        WHEN published IS NOT NULL AND published != '' 
+                        THEN datetime(published) 
+                        ELSE datetime(crawled_at) 
+                    END > datetime('now', '-1 day') THEN 50
+                    WHEN CASE 
+                        WHEN published IS NOT NULL AND published != '' 
+                        THEN datetime(published) 
+                        ELSE datetime(crawled_at) 
+                    END > datetime('now', '-3 days') THEN 30  
+                    WHEN CASE 
+                        WHEN published IS NOT NULL AND published != '' 
+                        THEN datetime(published) 
+                        ELSE datetime(crawled_at) 
+                    END > datetime('now', '-7 days') THEN 20
+                    WHEN CASE 
+                        WHEN published IS NOT NULL AND published != '' 
+                        THEN datetime(published) 
+                        ELSE datetime(crawled_at) 
+                    END > datetime('now', '-14 days') THEN 10
+                    ELSE 0 
+                END +
+                -- Add relevance score
+                COALESCE(relevance_score, 0)
+                DESC,
+                -- Secondary sort by actual date
+                CASE 
+                    WHEN published IS NOT NULL AND published != '' 
+                    THEN datetime(published) 
+                    ELSE datetime(crawled_at) 
+                END DESC
+            LIMIT ?
+        """, (limit,)) as cur:
+            rows = await cur.fetchall()
+        
+        await db.close()
+        
+        return [
+            {
+                "title": row[0] or "No Title",
+                "url": row[1] or "", 
+                "published": row[2] or "",
+                "brief": row[3] or "",
+                "source": row[4] or "Unknown",
+                "category": row[5] or "General",
+                "crawled_at": row[6] or "",
+                "relevance_score": row[7] or 0.0,
+                "sentiment": row[8] or "neutral",
+                "key_entities": row[9] or "[]",
+                "breaking_news": bool(row[10]) if row[10] is not None else False
+            }
+            for row in rows
+        ]
+        
+    except Exception as e:
+        print(f"[error] Database query failed: {e}")
+        return []
 
 @app.get("/api/trending-entities")
 async def get_trending_entities():
