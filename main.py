@@ -595,12 +595,46 @@ HTML_TEMPLATE = """
                 return true;
             });
 
-            // Sort by relevance score and breaking news
+            // Smart sorting: Recent + Relevant stories first
             filteredStories.sort((a, b) => {
-                if (a.breaking_news && !b.breaking_news) return -1;
-                if (!a.breaking_news && b.breaking_news) return 1;
-                return (b.relevance_score || 0) - (a.relevance_score || 0);
+                const now = new Date();
+                const dateA = new Date(a.published || a.crawled_at || 0);
+                const dateB = new Date(b.published || b.crawled_at || 0);
+                
+                // Calculate smart scores (recency + relevance)
+                const scoreA = calculateSmartScore(a, dateA, now);
+                const scoreB = calculateSmartScore(b, dateB, now);
+                
+                // If scores are very close (within 5 points), sort by date
+                if (Math.abs(scoreA - scoreB) < 5) {
+                    return dateB - dateA; // Newer first
+                }
+                
+                return scoreB - scoreA; // Higher score first
             });
+        }
+
+        function calculateSmartScore(story, storyDate, now) {
+            let score = 0;
+            
+            // Breaking news bonus (last 24 hours only)
+            const hoursAgo = (now - storyDate) / (1000 * 60 * 60);
+            if (story.breaking_news && hoursAgo < 24) {
+                score += 1000;
+            }
+            
+            // Recency bonus
+            const daysAgo = hoursAgo / 24;
+            if (daysAgo < 1) score += 50;        // Last 24 hours
+            else if (daysAgo < 3) score += 30;   // Last 3 days  
+            else if (daysAgo < 7) score += 20;   // Last week
+            else if (daysAgo < 14) score += 10;  // Last 2 weeks
+            
+            // Add relevance score
+            score += (story.relevance_score || 0);
+            
+            return score;
+        }
 
             const container = document.getElementById('stories-container');
             
@@ -766,10 +800,29 @@ async def get_summaries(limit: int = 100):
     
     async with db.execute("""
         SELECT title, url, published, brief, source, category, crawled_at,
-               relevance_score, sentiment, key_entities, breaking_news
+               relevance_score, sentiment, key_entities, breaking_news,
+               CASE 
+                   WHEN published IS NOT NULL AND published != '' 
+                   THEN datetime(published) 
+                   ELSE datetime(crawled_at) 
+               END as sort_date
         FROM stories
-        ORDER BY breaking_news DESC, relevance_score DESC, 
-                 datetime(COALESCE(published, crawled_at)) DESC
+        ORDER BY 
+            -- Breaking news from last 24 hours gets top priority
+            CASE WHEN breaking_news = 1 AND sort_date > datetime('now', '-1 day') THEN 1000 ELSE 0 END +
+            -- Recency bonus: stories from last 24 hours get 50 points, last week gets 20 points
+            CASE 
+                WHEN sort_date > datetime('now', '-1 day') THEN 50
+                WHEN sort_date > datetime('now', '-3 days') THEN 30  
+                WHEN sort_date > datetime('now', '-7 days') THEN 20
+                WHEN sort_date > datetime('now', '-14 days') THEN 10
+                ELSE 0 
+            END +
+            -- Add relevance score (0-15 points)
+            COALESCE(relevance_score, 0)
+            DESC,
+            -- Secondary sort by actual date for ties
+            sort_date DESC
         LIMIT ?
     """, (limit,)) as cur:
         rows = await cur.fetchall()
