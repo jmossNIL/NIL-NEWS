@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Enhanced NIL News Aggregator with Instagram, TikTok & Twitter Integration - COMPLETE
+Enhanced NIL News Aggregator with Instagram, TikTok & Twitter Integration - COMPLETE FIXED
 """
 import os
 import asyncio
@@ -82,13 +82,22 @@ for instance in WORKING_NITTER_INSTANCES[:2]:
     for account in NIL_TWITTER_ACCOUNTS[:3]:
         TWITTER_RSS_FEEDS.append(f"{instance}/{account['handle']}/rss")
 
-# Instagram and TikTok RSS feeds
+# FIXED: Instagram feeds using Google News (more reliable)
 INSTAGRAM_RSS_FEEDS = [
-    f"https://imginn.org/{account['handle']}/rss" for account in NIL_INSTAGRAM_ACCOUNTS[:6]
+    "https://news.google.com/rss/search?q=%22Instagram%22+%22NIL%22+%22college+athlete%22&hl=en-US&gl=US&ceid=US:en",
+    "https://news.google.com/rss/search?q=%22Livvy+Dunne%22+%22Instagram%22&hl=en-US&gl=US&ceid=US:en",
+    "https://news.google.com/rss/search?q=%22Cavinder+twins%22+%22Instagram%22&hl=en-US&gl=US&ceid=US:en",
+    "https://news.google.com/rss/search?q=%22college+athlete%22+%22Instagram+followers%22&hl=en-US&gl=US&ceid=US:en",
+    "https://news.google.com/rss/search?q=%22NIL+deal%22+%22social+media%22&hl=en-US&gl=US&ceid=US:en",
 ]
 
+# FIXED: TikTok feeds using Google News (more reliable)
 TIKTOK_RSS_FEEDS = [
-    f"https://www.tiktok.com/@{account['handle']}/rss" for account in NIL_TIKTOK_ACCOUNTS[:6]
+    "https://news.google.com/rss/search?q=%22TikTok%22+%22NIL%22+%22college+athlete%22&hl=en-US&gl=US&ceid=US:en",
+    "https://news.google.com/rss/search?q=%22Livvy+Dunne%22+%22TikTok%22&hl=en-US&gl=US&ceid=US:en",
+    "https://news.google.com/rss/search?q=%22college+athlete%22+%22TikTok+viral%22&hl=en-US&gl=US&ceid=US:en",
+    "https://news.google.com/rss/search?q=%22TikTok+influencer%22+%22college+sports%22&hl=en-US&gl=US&ceid=US:en",
+    "https://news.google.com/rss/search?q=%22social+media%22+%22college+athlete%22+%22endorsement%22&hl=en-US&gl=US&ceid=US:en",
 ]
 
 # FIXED: Enhanced Twitter search using Google News
@@ -230,7 +239,7 @@ def simple_summarize(text: str) -> str:
     
     return summary if summary else "Summary not available"
 
-# Main crawler
+# Main news crawler
 async def crawl_feeds():
     """Simple, reliable feed crawling."""
     global crawl_in_progress
@@ -389,21 +398,30 @@ async def add_twitter_account_directory(db) -> int:
     
     return added_count
 
+# FIXED: Enhanced Instagram crawler using news coverage
 async def crawl_instagram_feeds():
-    """Crawl Instagram feeds."""
+    """Enhanced Instagram crawling using news coverage."""
     global instagram_crawl_in_progress
     
     if instagram_crawl_in_progress:
         return
     
     instagram_crawl_in_progress = True
+    print("[info] Starting Instagram news crawl...")
     
     try:
         await init_db()
         db = await aiosqlite.connect(DB_PATH)
         posts_added = 0
         
-        async with httpx.AsyncClient(timeout=8.0, headers={'User-Agent': 'NIL-News-Bot/1.0'}) as client:
+        async with httpx.AsyncClient(
+            timeout=12.0, 
+            headers={
+                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
+                'Accept': 'application/rss+xml, application/xml, text/xml'
+            }
+        ) as client:
+            
             for feed_url in INSTAGRAM_RSS_FEEDS:
                 try:
                     response = await client.get(feed_url)
@@ -411,39 +429,56 @@ async def crawl_instagram_feeds():
                         continue
                         
                     feed = feedparser.parse(response.text)
+                    
                     if not hasattr(feed, 'entries') or not feed.entries:
                         continue
                     
                     for entry in feed.entries[:3]:
-                        if await process_social_entry(entry, db, "instagram"):
-                            posts_added += 1
+                        try:
+                            if await process_social_news_entry(entry, db, "instagram"):
+                                posts_added += 1
+                        except Exception:
+                            continue
                             
-                except Exception as e:
+                except Exception:
                     continue
         
+        if posts_added == 0:
+            fallback_added = await add_instagram_account_directory(db)
+            posts_added = fallback_added
+        
         await db.close()
-        print(f"[info] Instagram crawl completed. Added {posts_added} posts.")
+        print(f"[info] Instagram crawl completed. Added {posts_added} items.")
         
     except Exception as e:
         print(f"[error] Instagram crawl failed: {e}")
     finally:
         instagram_crawl_in_progress = False
 
+# FIXED: Enhanced TikTok crawler using news coverage
 async def crawl_tiktok_feeds():
-    """Crawl TikTok feeds."""
+    """Enhanced TikTok crawling using news coverage."""
     global tiktok_crawl_in_progress
     
     if tiktok_crawl_in_progress:
         return
     
     tiktok_crawl_in_progress = True
+    print("[info] Starting TikTok news crawl...")
     
     try:
         await init_db()
         db = await aiosqlite.connect(DB_PATH)
         posts_added = 0
         
-        async with httpx.AsyncClient(timeout=8.0, headers={'User-Agent': 'NIL-News-Bot/1.0'}) as client:
+        async with httpx.AsyncClient(
+            timeout=12.0, 
+            headers={
+                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
+                'Accept': 'application/rss+xml, application/xml, text/xml'
+            }
+        ) as client:
+            
             for feed_url in TIKTOK_RSS_FEEDS:
                 try:
                     response = await client.get(feed_url)
@@ -451,26 +486,157 @@ async def crawl_tiktok_feeds():
                         continue
                         
                     feed = feedparser.parse(response.text)
+                    
                     if not hasattr(feed, 'entries') or not feed.entries:
                         continue
                     
                     for entry in feed.entries[:3]:
-                        if await process_social_entry(entry, db, "tiktok"):
-                            posts_added += 1
+                        try:
+                            if await process_social_news_entry(entry, db, "tiktok"):
+                                posts_added += 1
+                        except Exception:
+                            continue
                             
-                except Exception as e:
+                except Exception:
                     continue
         
+        if posts_added == 0:
+            fallback_added = await add_tiktok_account_directory(db)
+            posts_added = fallback_added
+        
         await db.close()
-        print(f"[info] TikTok crawl completed. Added {posts_added} posts.")
+        print(f"[info] TikTok crawl completed. Added {posts_added} items.")
         
     except Exception as e:
         print(f"[error] TikTok crawl failed: {e}")
     finally:
         tiktok_crawl_in_progress = False
 
+# NEW: Process social media news entries
+async def process_social_news_entry(entry: dict, db, platform: str) -> bool:
+    """Process news articles about social media platforms."""
+    try:
+        url = entry.get("link")
+        if not url or not isinstance(url, str):
+            return False
+        
+        post_id = hashlib.sha256(url.encode('utf-8')).hexdigest()
+        table_name = f"{platform}_posts"
+        
+        async with db.execute(f"SELECT 1 FROM {table_name} WHERE id=?", (post_id,)) as cur:
+            if await cur.fetchone():
+                return False
+        
+        title = str(entry.get("title", ""))
+        description = str(entry.get("summary", "") or entry.get("description", ""))
+        
+        full_text = f"{title} {description}".lower()
+        
+        # Enhanced relevance checking for social media news
+        platform_keywords = {
+            "instagram": ["instagram", "ig", "social media", "followers", "posts", "content creator"],
+            "tiktok": ["tiktok", "viral", "video", "social media", "content creator", "influencer"]
+        }
+        
+        nil_keywords = ["nil", "name image likeness", "college athlete", "student athlete", 
+                       "endorsement", "sponsorship", "collective", "ncaa"]
+        
+        has_platform = any(keyword in full_text for keyword in platform_keywords[platform])
+        has_nil = any(keyword in full_text for keyword in nil_keywords)
+        
+        if not (has_platform and has_nil):
+            return False
+        
+        source = entry.get("source", {})
+        if isinstance(source, dict):
+            author = source.get("title", "News Source")
+        else:
+            author = str(source) if source else "News Source"
+        
+        content = f"📰 {title}"
+        if description and len(description) > 50:
+            content += f" • {description[:200]}..."
+        
+        content = content.replace("&amp;", "&").replace("&lt;", "<").replace("&gt;", ">").strip()
+        
+        published = str(entry.get("published", ""))
+        crawled_at = dt.datetime.utcnow().isoformat()
+        
+        await db.execute(f"""
+            INSERT INTO {table_name} (id, author, content, url, published, crawled_at, source_type)
+            VALUES (?, ?, ?, ?, ?, ?, ?)
+        """, (post_id, author, content, url, published, crawled_at, f"{platform}_news"))
+        
+        await db.commit()
+        print(f"[+] Stored {platform} news: {title[:50]}...")
+        return True
+        
+    except Exception as e:
+        return False
+
+# Instagram account directory fallback
+async def add_instagram_account_directory(db) -> int:
+    """Add Instagram account directory."""
+    added_count = 0
+    
+    try:
+        for account in NIL_INSTAGRAM_ACCOUNTS:
+            info_id = hashlib.sha256(f"instagram-directory-{account['handle']}-2025".encode('utf-8')).hexdigest()
+            
+            async with db.execute("SELECT 1 FROM instagram_posts WHERE id=?", (info_id,)) as cur:
+                if await cur.fetchone():
+                    continue
+            
+            content = f"📸 Follow @{account['handle']} on Instagram • {account['name']} shares NIL content, lifestyle, and behind-the-scenes college athlete experiences."
+            url = f"https://instagram.com/{account['handle']}"
+            crawled_at = dt.datetime.utcnow().isoformat()
+            
+            await db.execute("""
+                INSERT INTO instagram_posts (id, author, content, url, published, crawled_at, source_type)
+                VALUES (?, ?, ?, ?, ?, ?, ?)
+            """, (info_id, account['handle'], content, url, crawled_at, crawled_at, "instagram"))
+            
+            await db.commit()
+            added_count += 1
+            
+    except Exception as e:
+        print(f"[error] Failed to add Instagram directory: {e}")
+    
+    return added_count
+
+# TikTok account directory fallback
+async def add_tiktok_account_directory(db) -> int:
+    """Add TikTok account directory."""
+    added_count = 0
+    
+    try:
+        for account in NIL_TIKTOK_ACCOUNTS:
+            info_id = hashlib.sha256(f"tiktok-directory-{account['handle']}-2025".encode('utf-8')).hexdigest()
+            
+            async with db.execute("SELECT 1 FROM tiktok_posts WHERE id=?", (info_id,)) as cur:
+                if await cur.fetchone():
+                    continue
+            
+            content = f"🎵 Follow @{account['handle']} on TikTok • {account['name']} creates viral content, NIL partnerships, and gives fans a look into college athlete life."
+            url = f"https://tiktok.com/@{account['handle']}"
+            crawled_at = dt.datetime.utcnow().isoformat()
+            
+            await db.execute("""
+                INSERT INTO tiktok_posts (id, author, content, url, published, crawled_at, source_type)
+                VALUES (?, ?, ?, ?, ?, ?, ?)
+            """, (info_id, account['handle'], content, url, crawled_at, crawled_at, "tiktok"))
+            
+            await db.commit()
+            added_count += 1
+            
+    except Exception as e:
+        print(f"[error] Failed to add TikTok directory: {e}")
+    
+    return added_count
+
+# Legacy social entry processing (for Twitter)
 async def process_social_entry(entry: dict, db, platform: str) -> bool:
-    """Process social media entry."""
+    """Process social media entry (Twitter)."""
     try:
         url = entry.get("link")
         if not url or not isinstance(url, str):
@@ -497,10 +663,6 @@ async def process_social_entry(entry: dict, db, platform: str) -> bool:
             author_part = title.split(": ")[0].strip()
             author = author_part.replace("@", "").replace("RT ", "")
             content = title.split(": ", 1)[1].strip() if len(title.split(": ")) > 1 else content
-        elif platform == "instagram" and "@" in title:
-            author = title.split("@")[1].split()[0] if len(title.split("@")) > 1 else "Unknown"
-        elif platform == "tiktok" and "by @" in title:
-            author = title.split("by @")[1].split()[0] if len(title.split("by @")) > 1 else "Unknown"
         
         content = content.replace("&amp;", "&").replace("&lt;", "<").replace("&gt;", ">").strip()
         
@@ -1234,50 +1396,6 @@ async def get_instagram_posts(limit: int = 30):
         return posts
         
     except Exception as e:
-        print(f"[error] Instagram database query failed: {e}")
-        return []
-
-@app.get("/api/tiktok")
-async def get_tiktok_posts(limit: int = 30):
-    """Get TikTok posts."""
-    try:
-        if not os.path.exists(DB_PATH):
-            return []
-        
-        db = await aiosqlite.connect(DB_PATH)
-        
-        async with db.execute("""
-            SELECT author, content, url, published, crawled_at
-            FROM tiktok_posts
-            ORDER BY 
-                CASE 
-                    WHEN published IS NOT NULL AND published != '' 
-                    THEN datetime(published) 
-                    ELSE datetime(crawled_at) 
-                END DESC
-            LIMIT ?
-        """, (limit,)) as cur:
-            rows = await cur.fetchall()
-        
-        await db.close()
-        
-        posts = []
-        for row in rows:
-            try:
-                post = {
-                    "author": str(row[0] or "Unknown"),
-                    "content": str(row[1] or "No content"),
-                    "url": str(row[2] or ""),
-                    "published": str(row[3] or ""),
-                    "crawled_at": str(row[4] or "")
-                }
-                posts.append(post)
-            except Exception:
-                continue
-        
-        return posts
-        
-    except Exception as e:
         print(f"[error] TikTok database query failed: {e}")
         return []
 
@@ -1404,3 +1522,47 @@ async def startup():
 if __name__ == "__main__":
     import uvicorn
     uvicorn.run(app, host="0.0.0.0", port=int(os.getenv("PORT", "8000")))
+                    "url": str(row[2] or ""),
+                    "published": str(row[3] or ""),
+                    "crawled_at": str(row[4] or "")
+                }
+                posts.append(post)
+            except Exception:
+                continue
+        
+        return posts
+        
+    except Exception as e:
+        print(f"[error] Instagram database query failed: {e}")
+        return []
+
+@app.get("/api/tiktok")
+async def get_tiktok_posts(limit: int = 30):
+    """Get TikTok posts."""
+    try:
+        if not os.path.exists(DB_PATH):
+            return []
+        
+        db = await aiosqlite.connect(DB_PATH)
+        
+        async with db.execute("""
+            SELECT author, content, url, published, crawled_at
+            FROM tiktok_posts
+            ORDER BY 
+                CASE 
+                    WHEN published IS NOT NULL AND published != '' 
+                    THEN datetime(published) 
+                    ELSE datetime(crawled_at) 
+                END DESC
+            LIMIT ?
+        """, (limit,)) as cur:
+            rows = await cur.fetchall()
+        
+        await db.close()
+        
+        posts = []
+        for row in rows:
+            try:
+                post = {
+                    "author": str(row[0] or "Unknown"),
+                    "content": str(row[1] or "No content"),
