@@ -1,29 +1,19 @@
 #!/usr/bin/env python3
 """
-COMPLETE NIL News Aggregator with Instagram, TikTok & Twitter Integration - FULLY FIXED
+Enhanced NIL News Aggregator with Instagram, TikTok & Twitter Integration
 """
 import os
-import sys
 import asyncio
 import datetime as dt
 import hashlib
-import logging
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List
 
-# Configure logging
-logging.basicConfig(level=logging.INFO)
-logger = logging.getLogger(__name__)
-
-try:
-    import aiosqlite
-    import feedparser
-    from fastapi import FastAPI, HTTPException
-    from fastapi.responses import HTMLResponse
-    from trafilatura import extract
-    import httpx
-except ImportError as e:
-    logger.error(f"Missing required dependency: {e}")
-    sys.exit(1)
+import aiosqlite
+import feedparser
+from fastapi import FastAPI
+from fastapi.responses import HTMLResponse
+from trafilatura import extract
+import httpx
 
 # Enhanced Configuration
 FEEDS = [
@@ -45,7 +35,7 @@ KEYWORDS = [
     "house v ncaa", "opendorse", "marketpryce",
 ]
 
-# NIL Twitter accounts to monitor (FIXED)
+# NIL Twitter accounts to monitor
 NIL_TWITTER_ACCOUNTS = [
     {"handle": "NILWire", "name": "NIL Wire"},
     {"handle": "On3NIL", "name": "On3 NIL"},
@@ -57,7 +47,7 @@ NIL_TWITTER_ACCOUNTS = [
     {"handle": "SInow", "name": "Sports Illustrated"},
 ]
 
-# Instagram accounts to monitor
+# Instagram accounts to monitor (using RSS feeds via external services)
 NIL_INSTAGRAM_ACCOUNTS = [
     {"handle": "livvydunne", "name": "Livvy Dunne"},
     {"handle": "cavindertwins", "name": "Cavinder Twins"},
@@ -67,6 +57,8 @@ NIL_INSTAGRAM_ACCOUNTS = [
     {"handle": "marketpryce", "name": "MarketPryce"},
     {"handle": "iconsourceapp", "name": "Icon Source"},
     {"handle": "nilstore", "name": "NIL Store"},
+    {"handle": "espncollegesports", "name": "ESPN College Sports"},
+    {"handle": "theathletic", "name": "The Athletic"},
 ]
 
 # TikTok accounts to monitor
@@ -77,72 +69,31 @@ NIL_TIKTOK_ACCOUNTS = [
     {"handle": "lsu.gymgirl", "name": "LSU Gymnast"},
     {"handle": "opendorse", "name": "Opendorse"},
     {"handle": "marketpryce", "name": "MarketPryce"},
+    {"handle": "espncollegesports", "name": "ESPN College Sports"},
+    {"handle": "bleacherreport", "name": "Bleacher Report"},
+    {"handle": "sportscenter", "name": "SportsCenter"},
 ]
 
-# FIXED: Working Nitter instances
-WORKING_NITTER_INSTANCES = [
-    "https://nitter.poast.org",
-    "https://nitter.privacydev.net", 
-    "https://nitter.woodland.cafe"
+# Social media RSS feeds (using multiple nitter instances for reliability)
+TWITTER_RSS_FEEDS = [
+    f"https://nitter.net/{account['handle']}/rss" for account in NIL_TWITTER_ACCOUNTS[:5]
 ]
 
-# FIXED: Generate Twitter RSS feeds using working instances
-TWITTER_RSS_FEEDS = []
-for instance in WORKING_NITTER_INSTANCES[:2]:
-    for account in NIL_TWITTER_ACCOUNTS[:3]:
-        TWITTER_RSS_FEEDS.append(f"{instance}/{account['handle']}/rss")
-
-# Instagram feeds using Google News (more reliable)
 INSTAGRAM_RSS_FEEDS = [
-    "https://news.google.com/rss/search?q=%22Instagram%22+%22NIL%22+%22college+athlete%22&hl=en-US&gl=US&ceid=US:en",
-    "https://news.google.com/rss/search?q=%22Livvy+Dunne%22+%22Instagram%22&hl=en-US&gl=US&ceid=US:en",
-    "https://news.google.com/rss/search?q=%22Cavinder+twins%22+%22Instagram%22&hl=en-US&gl=US&ceid=US:en",
-    "https://news.google.com/rss/search?q=%22college+athlete%22+%22Instagram+followers%22&hl=en-US&gl=US&ceid=US:en",
-    "https://news.google.com/rss/search?q=%22NIL+deal%22+%22social+media%22&hl=en-US&gl=US&ceid=US:en",
+    f"https://imginn.org/{account['handle']}/rss" for account in NIL_INSTAGRAM_ACCOUNTS[:8]
 ]
 
-# TikTok feeds using Google News (more reliable)
 TIKTOK_RSS_FEEDS = [
-    "https://news.google.com/rss/search?q=%22TikTok%22+%22NIL%22+%22college+athlete%22&hl=en-US&gl=US&ceid=US:en",
-    "https://news.google.com/rss/search?q=%22Livvy+Dunne%22+%22TikTok%22&hl=en-US&gl=US&ceid=US:en",
-    "https://news.google.com/rss/search?q=%22college+athlete%22+%22TikTok+viral%22&hl=en-US&gl=US&ceid=US:en",
-    "https://news.google.com/rss/search?q=%22TikTok+influencer%22+%22college+sports%22&hl=en-US&gl=US&ceid=US:en",
-    "https://news.google.com/rss/search?q=%22social+media%22+%22college+athlete%22+%22endorsement%22&hl=en-US&gl=US&ceid=US:en",
+    f"https://www.tiktok.com/@{account['handle']}/rss" for account in NIL_TIKTOK_ACCOUNTS[:8]
 ]
 
-# Enhanced Twitter search using Google News
+# Social media search feeds
 TWITTER_SEARCH_FEEDS = [
-    "https://news.google.com/rss/search?q=%22NIL%22+%22college+athlete%22+social+media&hl=en-US&gl=US&ceid=US:en",
-    "https://news.google.com/rss/search?q=%22NIL+deal%22+twitter&hl=en-US&gl=US&ceid=US:en",
+    "https://nitter.net/search/rss?q=NIL%20college",
+    "https://nitter.net/search/rss?q=NIL%20deal",
 ]
 
-# FIXED: Database path with multiple fallbacks
-def get_db_path() -> str:
-    """Get database path with fallbacks for different deployment environments."""
-    possible_paths = [
-        os.getenv("DB_PATH"),
-        "/app/data/nil_news.db",  # Docker
-        "./data/nil_news.db",     # Local
-        "/tmp/nil_news.db"        # Fallback
-    ]
-    
-    for path in possible_paths:
-        if path:
-            try:
-                os.makedirs(os.path.dirname(path), exist_ok=True)
-                # Test write access
-                test_file = f"{path}.test"
-                with open(test_file, 'w') as f:
-                    f.write("test")
-                os.remove(test_file)
-                return path
-            except (OSError, PermissionError):
-                continue
-    
-    raise RuntimeError("No writable database path found")
-
-DB_PATH = get_db_path()
-logger.info(f"Using database path: {DB_PATH}")
+DB_PATH = "/tmp/nil_news.db"
 
 # Crawl flags
 crawl_in_progress = False
@@ -156,6 +107,7 @@ async def init_db():
     try:
         db = await aiosqlite.connect(DB_PATH)
         
+        # Stories table
         await db.execute("""
             CREATE TABLE IF NOT EXISTS stories (
                 id TEXT PRIMARY KEY,
@@ -170,6 +122,7 @@ async def init_db():
             )
         """)
         
+        # Twitter posts table
         await db.execute("""
             CREATE TABLE IF NOT EXISTS twitter_posts (
                 id TEXT PRIMARY KEY,
@@ -182,6 +135,7 @@ async def init_db():
             )
         """)
         
+        # Instagram posts table
         await db.execute("""
             CREATE TABLE IF NOT EXISTS instagram_posts (
                 id TEXT PRIMARY KEY,
@@ -194,6 +148,7 @@ async def init_db():
             )
         """)
         
+        # TikTok posts table
         await db.execute("""
             CREATE TABLE IF NOT EXISTS tiktok_posts (
                 id TEXT PRIMARY KEY,
@@ -208,30 +163,22 @@ async def init_db():
         
         await db.commit()
         await db.close()
-        logger.info("Database initialized successfully")
+        print("[info] Database initialized successfully with all social media tables")
         
     except Exception as e:
-        logger.error(f"Database initialization failed: {e}")
+        print(f"[error] Database initialization failed: {e}")
         raise
 
 # Content processing functions
 def is_relevant(text: str) -> bool:
-    """Enhanced relevance checking."""
-    if not text:
-        return False
+    """Simple but effective relevance checking."""
     text_lower = text.lower()
     keywords_lower = [k.lower() for k in KEYWORDS]
-    nil_keywords = ["nil", "name image likeness", "collective", "endorsement", 
-                   "student athlete", "college athlete", "college sports", "ncaa", "booster"]
-    all_keywords = keywords_lower + nil_keywords
-    return any(keyword in text_lower for keyword in all_keywords)
+    return any(keyword in text_lower for keyword in keywords_lower)
 
 def categorize_content(title: str, text: str) -> str:
     """Simple categorization."""
-    if not title and not text:
-        return "General"
-    
-    combined = (str(title) + " " + str(text)).lower()
+    combined = (title + " " + text).lower()
     
     if any(word in combined for word in ["lawsuit", "settlement", "legal"]):
         return "Legal"
@@ -246,9 +193,6 @@ def categorize_content(title: str, text: str) -> str:
 
 def extract_source(url: str) -> str:
     """Simple source extraction."""
-    if not url:
-        return "Unknown"
-    
     try:
         if "frontofficesports.com" in url:
             return "Front Office Sports"
@@ -274,7 +218,7 @@ def simple_summarize(text: str) -> str:
     if not text:
         return "No summary available"
     
-    text = str(text).replace('\n', ' ').strip()
+    text = text.replace('\n', ' ').strip()
     sentences = [s.strip() + '.' for s in text.split('.') if len(s.strip()) > 30]
     summary = ' '.join(sentences[:3])
     
@@ -283,55 +227,36 @@ def simple_summarize(text: str) -> str:
     
     return summary if summary else "Summary not available"
 
-def safe_str(value: Any, default: str = "") -> str:
-    """Safely convert value to string."""
-    if value is None:
-        return default
-    return str(value).strip()
-
-# Enhanced HTTP client function
-async def safe_http_get(client: httpx.AsyncClient, url: str) -> Optional[httpx.Response]:
-    """Safely make HTTP request with proper error handling."""
-    try:
-        response = await client.get(url, timeout=10.0)
-        if response.status_code == 200:
-            return response
-        else:
-            logger.warning(f"HTTP {response.status_code} for {url}")
-    except Exception as e:
-        logger.warning(f"HTTP request failed for {url}: {e}")
-    return None
-
-# Main news crawler
+# Crawler functions
 async def crawl_feeds():
     """Simple, reliable feed crawling."""
     global crawl_in_progress
     
     if crawl_in_progress:
+        print("[info] Crawl already in progress, skipping")
         return
     
     crawl_in_progress = True
-    logger.info("Starting feed crawl...")
+    print("[info] Starting feed crawl...")
     
     try:
         await init_db()
         db = await aiosqlite.connect(DB_PATH)
         stories_added = 0
         
-        async with httpx.AsyncClient(
-            timeout=10.0, 
-            headers={'User-Agent': 'NIL-News-Bot/1.0'},
-            follow_redirects=True
-        ) as client:
+        async with httpx.AsyncClient(timeout=10.0, headers={'User-Agent': 'NIL-News-Bot/1.0'}) as client:
             for feed_url in FEEDS:
                 try:
-                    response = await safe_http_get(client, feed_url)
-                    if not response:
+                    print(f"[info] Crawling {feed_url}")
+                    response = await client.get(feed_url)
+                    if response.status_code != 200:
+                        print(f"[warn] HTTP {response.status_code} for {feed_url}")
                         continue
                         
                     feed = feedparser.parse(response.text)
                     
                     if not hasattr(feed, 'entries') or not feed.entries:
+                        print(f"[warn] No entries found in {feed_url}")
                         continue
                     
                     for entry in feed.entries[:5]:
@@ -339,36 +264,45 @@ async def crawl_feeds():
                             stories_added += 1
                             
                 except Exception as e:
-                    logger.warning(f"Failed to process feed {feed_url}: {e}")
+                    print(f"[error] Failed to process {feed_url}: {e}")
                     continue
         
         await db.close()
-        logger.info(f"Crawl completed. Added {stories_added} new stories.")
+        print(f"[info] Crawl completed. Added {stories_added} new stories.")
         
     except Exception as e:
-        logger.error(f"Crawl failed: {e}")
+        print(f"[error] Crawl failed: {e}")
     finally:
         crawl_in_progress = False
 
 async def process_entry(entry: dict, db) -> bool:
-    """Simple entry processing with better error handling."""
+    """Simple, reliable entry processing."""
     try:
-        if not entry:
-            return False
-            
         url = entry.get("link")
         if not url:
             return False
         
-        story_id = hashlib.sha256(str(url).encode('utf-8')).hexdigest()
+        story_id = hashlib.sha256(url.encode()).hexdigest()
         async with db.execute("SELECT 1 FROM stories WHERE id=?", (story_id,)) as cur:
             if await cur.fetchone():
                 return False
         
-        title = str(entry.get("title", "No title"))
-        text = str(entry.get("summary", "")) + " " + str(entry.get("description", ""))
+        title = entry.get("title", "No title")
         
-        if not text.strip():
+        # Get content with better fallback
+        text = ""
+        try:
+            async with httpx.AsyncClient(timeout=8.0, headers={'User-Agent': 'NIL-News-Bot/1.0'}) as client:
+                response = await client.get(url)
+                if response.status_code == 200:
+                    text = extract(response.text) or response.text[:1000]
+        except:
+            pass
+        
+        if not text:
+            text = entry.get("summary", "") + " " + entry.get("description", "")
+        
+        if not text:
             return False
         
         if not is_relevant(title + " " + text):
@@ -377,32 +311,32 @@ async def process_entry(entry: dict, db) -> bool:
         brief = simple_summarize(text)
         source = extract_source(url)
         category = categorize_content(title, text)
-        published = str(entry.get("published", ""))
+        published = entry.get("published", "")
         crawled_at = dt.datetime.utcnow().isoformat()
         
         await db.execute("""
             INSERT INTO stories (id, title, url, published, summary, brief, crawled_at, source, category)
             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-        """, (story_id, title, str(url), published, text[:2000], brief, crawled_at, source, category))
+        """, (story_id, title, url, published, text[:2000], brief, crawled_at, source, category))
         
         await db.commit()
-        logger.info(f"Stored: {title[:50]}...")
+        print(f"[+] Stored: {title[:50]}... [{source}]")
         return True
         
     except Exception as e:
-        logger.warning(f"Failed to process entry: {e}")
+        print(f"[error] Failed to process entry: {e}")
         return False
 
-# Enhanced Twitter crawler
 async def crawl_twitter_feeds():
-    """Enhanced Twitter RSS crawling."""
+    """Crawl Twitter RSS feeds for NIL content."""
     global twitter_crawl_in_progress
     
     if twitter_crawl_in_progress:
+        print("[info] Twitter crawl already in progress, skipping")
         return
     
     twitter_crawl_in_progress = True
-    logger.info("Starting Twitter crawl...")
+    print("[info] Starting Twitter feed crawl...")
     
     try:
         await init_db()
@@ -411,19 +345,19 @@ async def crawl_twitter_feeds():
         
         all_twitter_feeds = TWITTER_RSS_FEEDS + TWITTER_SEARCH_FEEDS
         
-        async with httpx.AsyncClient(
-            timeout=12.0, 
-            headers={'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'},
-            follow_redirects=True
-        ) as client:
+        async with httpx.AsyncClient(timeout=8.0, headers={'User-Agent': 'NIL-News-Bot/1.0'}) as client:
             for feed_url in all_twitter_feeds:
                 try:
-                    response = await safe_http_get(client, feed_url)
-                    if not response:
+                    print(f"[info] Crawling Twitter feed: {feed_url}")
+                    response = await client.get(feed_url)
+                    if response.status_code != 200:
+                        print(f"[warn] HTTP {response.status_code} for {feed_url}")
                         continue
-                    
+                        
                     feed = feedparser.parse(response.text)
+                    
                     if not hasattr(feed, 'entries') or not feed.entries:
+                        print(f"[warn] No Twitter entries found in {feed_url}")
                         continue
                     
                     for entry in feed.entries[:2]:
@@ -431,108 +365,160 @@ async def crawl_twitter_feeds():
                             tweets_added += 1
                             
                 except Exception as e:
-                    logger.warning(f"Failed to process Twitter feed {feed_url}: {e}")
+                    print(f"[error] Failed to process Twitter feed {feed_url}: {e}")
                     continue
-            
-            if tweets_added == 0:
-                fallback_added = await add_twitter_account_directory(db)
-                tweets_added = fallback_added
         
         await db.close()
-        logger.info(f"Twitter crawl completed. Added {tweets_added} items.")
+        print(f"[info] Twitter crawl completed. Added {tweets_added} new tweets.")
         
     except Exception as e:
-        logger.error(f"Twitter crawl failed: {e}")
+        print(f"[error] Twitter crawl failed: {e}")
     finally:
         twitter_crawl_in_progress = False
 
-async def add_twitter_account_directory(db) -> int:
-    """Add Twitter account directory with better error handling."""
-    added_count = 0
+async def crawl_instagram_feeds():
+    """Crawl Instagram RSS feeds for NIL content."""
+    global instagram_crawl_in_progress
+    
+    if instagram_crawl_in_progress:
+        print("[info] Instagram crawl already in progress, skipping")
+        return
+    
+    instagram_crawl_in_progress = True
+    print("[info] Starting Instagram feed crawl...")
     
     try:
-        for account in NIL_TWITTER_ACCOUNTS:
-            info_id = hashlib.sha256(f"twitter-directory-{account['handle']}-2025".encode('utf-8')).hexdigest()
-            
-            async with db.execute("SELECT 1 FROM twitter_posts WHERE id=?", (info_id,)) as cur:
-                if await cur.fetchone():
+        await init_db()
+        db = await aiosqlite.connect(DB_PATH)
+        posts_added = 0
+        
+        async with httpx.AsyncClient(timeout=8.0, headers={'User-Agent': 'NIL-News-Bot/1.0'}) as client:
+            for feed_url in INSTAGRAM_RSS_FEEDS:
+                try:
+                    print(f"[info] Crawling Instagram feed: {feed_url}")
+                    response = await client.get(feed_url)
+                    if response.status_code != 200:
+                        print(f"[warn] HTTP {response.status_code} for {feed_url}")
+                        continue
+                        
+                    feed = feedparser.parse(response.text)
+                    
+                    if not hasattr(feed, 'entries') or not feed.entries:
+                        print(f"[warn] No Instagram entries found in {feed_url}")
+                        continue
+                    
+                    for entry in feed.entries[:3]:
+                        if await process_social_entry(entry, db, "instagram"):
+                            posts_added += 1
+                            
+                except Exception as e:
+                    print(f"[error] Failed to process Instagram feed {feed_url}: {e}")
                     continue
-            
-            content = f"📱 Follow @{account['handle']} for NIL updates • {account['name']} provides comprehensive Name, Image, and Likeness coverage."
-            url = f"https://twitter.com/{account['handle']}"
-            crawled_at = dt.datetime.utcnow().isoformat()
-            
-            await db.execute("""
-                INSERT INTO twitter_posts (id, author, content, url, published, crawled_at, source_type)
-                VALUES (?, ?, ?, ?, ?, ?, ?)
-            """, (info_id, account['handle'], content, url, crawled_at, crawled_at, "twitter"))
-            
-            await db.commit()
-            added_count += 1
-            
+        
+        await db.close()
+        print(f"[info] Instagram crawl completed. Added {posts_added} new posts.")
+        
     except Exception as e:
-        logger.error(f"Failed to add TikTok directory: {e}")
-    
-    return added_count
+        print(f"[error] Instagram crawl failed: {e}")
+    finally:
+        instagram_crawl_in_progress = False
 
-# Legacy social entry processing (for Twitter)
-async def process_social_entry(entry: dict, db, platform: str) -> bool:
-    """Process social media entry (Twitter) with better error handling."""
+async def crawl_tiktok_feeds():
+    """Crawl TikTok RSS feeds for NIL content."""
+    global tiktok_crawl_in_progress
+    
+    if tiktok_crawl_in_progress:
+        print("[info] TikTok crawl already in progress, skipping")
+        return
+    
+    tiktok_crawl_in_progress = True
+    print("[info] Starting TikTok feed crawl...")
+    
     try:
-        if not entry:
-            return False
-            
+        await init_db()
+        db = await aiosqlite.connect(DB_PATH)
+        posts_added = 0
+        
+        async with httpx.AsyncClient(timeout=8.0, headers={'User-Agent': 'NIL-News-Bot/1.0'}) as client:
+            for feed_url in TIKTOK_RSS_FEEDS:
+                try:
+                    print(f"[info] Crawling TikTok feed: {feed_url}")
+                    response = await client.get(feed_url)
+                    if response.status_code != 200:
+                        print(f"[warn] HTTP {response.status_code} for {feed_url}")
+                        continue
+                        
+                    feed = feedparser.parse(response.text)
+                    
+                    if not hasattr(feed, 'entries') or not feed.entries:
+                        print(f"[warn] No TikTok entries found in {feed_url}")
+                        continue
+                    
+                    for entry in feed.entries[:3]:
+                        if await process_social_entry(entry, db, "tiktok"):
+                            posts_added += 1
+                            
+                except Exception as e:
+                    print(f"[error] Failed to process TikTok feed {feed_url}: {e}")
+                    continue
+        
+        await db.close()
+        print(f"[info] TikTok crawl completed. Added {posts_added} new posts.")
+        
+    except Exception as e:
+        print(f"[error] TikTok crawl failed: {e}")
+    finally:
+        tiktok_crawl_in_progress = False
+
+async def process_social_entry(entry: dict, db, platform: str) -> bool:
+    """Process a single social media entry."""
+    try:
         url = entry.get("link")
-        if not url or not isinstance(url, str):
+        if not url:
             return False
         
-        post_id = hashlib.sha256(str(url).encode('utf-8')).hexdigest()
+        post_id = hashlib.sha256(url.encode()).hexdigest()
         table_name = f"{platform}_posts"
         
         async with db.execute(f"SELECT 1 FROM {table_name} WHERE id=?", (post_id,)) as cur:
             if await cur.fetchone():
                 return False
         
-        title = str(entry.get("title", ""))
-        content = str(entry.get("summary", "") or entry.get("description", ""))
+        title = entry.get("title", "")
+        content = entry.get("summary", "") or entry.get("description", "")
         
-        if not title and not content:
-            return False
-        
-        if not is_relevant(f"{title} {content}"):
+        if not is_relevant(title + " " + content):
             return False
         
         author = "Unknown"
-        if platform == "twitter" and ": " in title:
-            author_part = title.split(": ")[0].strip()
-            author = author_part.replace("@", "").replace("RT ", "")
-            content = title.split(": ", 1)[1].strip() if len(title.split(": ")) > 1 else content
+        if ": " in title:
+            author = title.split(": ")[0].strip()
+            content = title.split(": ", 1)[1].strip()
+        elif platform == "instagram" and "@" in title:
+            author = title.split("@")[1].split()[0] if "@" in title else "Unknown"
+        elif platform == "tiktok" and "by @" in title:
+            author = title.split("by @")[1].split()[0] if "by @" in title else "Unknown"
         
-        content = content.replace("&amp;", "&").replace("&lt;", "<").replace("&gt;", ">").strip()
-        
-        if len(content) > 1000:
-            content = content[:1000] + "..."
-        
-        published = str(entry.get("published", ""))
+        published = entry.get("published", "")
         crawled_at = dt.datetime.utcnow().isoformat()
         
         await db.execute(f"""
             INSERT INTO {table_name} (id, author, content, url, published, crawled_at, source_type)
             VALUES (?, ?, ?, ?, ?, ?, ?)
-        """, (post_id, author, content, str(url), published, crawled_at, platform))
+        """, (post_id, author, content, url, published, crawled_at, platform))
         
         await db.commit()
-        logger.info(f"Stored {platform}: @{author}")
+        print(f"[+] Stored {platform} post: @{author}: {content[:50]}...")
         return True
         
     except Exception as e:
-        logger.warning(f"Failed to process {platform} entry: {e}")
+        print(f"[error] Failed to process {platform} entry: {e}")
         return False
 
 # FastAPI app
 app = FastAPI(title="NIL News Hub Pro", version="4.0.0")
 
-# Complete HTML template with advanced UI
+# Enhanced HTML template with four tabs
 HTML_TEMPLATE = """
 <!DOCTYPE html>
 <html lang="en">
@@ -552,6 +538,7 @@ HTML_TEMPLATE = """
     </style>
 </head>
 <body class="bg-gray-50">
+    <!-- Header -->
     <header class="gradient-bg text-white py-8">
         <div class="container mx-auto px-6">
             <h1 class="text-4xl font-bold mb-2">
@@ -561,11 +548,12 @@ HTML_TEMPLATE = """
         </div>
     </header>
 
+    <!-- Tabs -->
     <div class="container mx-auto px-6 pt-6">
         <div class="bg-white rounded-lg shadow-md mb-6">
             <div class="flex border-b overflow-x-auto">
                 <button onclick="showTab('news')" id="news-tab" class="tab-active px-6 py-3 font-medium rounded-tl-lg flex-shrink-0">
-                    <i class="fas fa-newspaper mr-2"></i>News
+                    <i class="fas fa-newspaper mr-2"></i>News Feed
                 </button>
                 <button onclick="showTab('twitter')" id="twitter-tab" class="px-6 py-3 font-medium hover:bg-gray-50 flex-shrink-0">
                     <i class="fab fa-twitter mr-2"></i>Twitter
@@ -579,15 +567,24 @@ HTML_TEMPLATE = """
             </div>
         </div>
 
+        <!-- News Tab -->
         <div id="news-content" class="tab-content">
             <div class="bg-white rounded-lg shadow-md p-4 mb-6">
                 <div class="flex gap-4 items-center flex-wrap">
                     <button onclick="refreshStories()" class="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-lg">
-                        <i class="fas fa-refresh mr-2"></i>Refresh
+                        <i class="fas fa-refresh mr-2"></i>Refresh Stories
                     </button>
                     <button onclick="crawlNow()" class="bg-green-600 hover:bg-green-700 text-white px-4 py-2 rounded-lg">
                         <i class="fas fa-download mr-2"></i>Crawl Now
                     </button>
+                    <select id="category-filter" onchange="filterStories()" class="border border-gray-300 rounded-lg px-3 py-2">
+                        <option value="">All Categories</option>
+                        <option value="Legal">Legal</option>
+                        <option value="Collectives">Collectives</option>
+                        <option value="Technology">Technology</option>
+                        <option value="Recruiting">Recruiting</option>
+                        <option value="General">General</option>
+                    </select>
                     <span id="story-count" class="text-gray-600 font-medium"></span>
                 </div>
             </div>
@@ -599,6 +596,7 @@ HTML_TEMPLATE = """
             </div>
         </div>
 
+        <!-- Twitter Tab -->
         <div id="twitter-content" class="tab-content hidden">
             <div class="bg-white rounded-lg shadow-md p-4 mb-6">
                 <div class="flex gap-4 items-center flex-wrap">
@@ -619,6 +617,7 @@ HTML_TEMPLATE = """
             </div>
         </div>
 
+        <!-- Instagram Tab -->
         <div id="instagram-content" class="tab-content hidden">
             <div class="bg-white rounded-lg shadow-md p-4 mb-6">
                 <div class="flex gap-4 items-center flex-wrap">
@@ -639,6 +638,7 @@ HTML_TEMPLATE = """
             </div>
         </div>
 
+        <!-- TikTok Tab -->
         <div id="tiktok-content" class="tab-content hidden">
             <div class="bg-white rounded-lg shadow-md p-4 mb-6">
                 <div class="flex gap-4 items-center flex-wrap">
@@ -693,14 +693,15 @@ HTML_TEMPLATE = """
         async function loadStories() {
             try {
                 const response = await fetch('/api/summaries?limit=50');
-                if (!response.ok) throw new Error(`HTTP ${response.status}`);
+                if (!response.ok) throw new Error(`HTTP ${response.status}: ${response.statusText}`);
                 
                 const stories = await response.json();
                 allStories = stories;
                 document.getElementById('story-count').textContent = `${stories.length} stories loaded`;
-                renderStories();
+                filterStories();
                 
             } catch (error) {
+                console.error('Error loading stories:', error);
                 document.getElementById('stories-container').innerHTML = 
                     `<div class="text-center text-red-500 py-8">
                         <p>Error loading stories: ${error.message}</p>
@@ -711,14 +712,28 @@ HTML_TEMPLATE = """
             }
         }
 
-        function renderStories() {
+        function filterStories() {
+            const categoryFilter = document.getElementById('category-filter').value;
+            
+            let filteredStories = allStories.filter(story => {
+                if (categoryFilter && story.category !== categoryFilter) return false;
+                return true;
+            });
+
+            filteredStories.sort((a, b) => {
+                const dateA = new Date(a.published || a.crawled_at || 0);
+                const dateB = new Date(b.published || b.crawled_at || 0);
+                return dateB - dateA;
+            });
+
             const container = document.getElementById('stories-container');
             
-            if (allStories.length === 0) {
+            if (filteredStories.length === 0) {
                 container.innerHTML = `
                     <div class="text-center py-8">
                         <i class="fas fa-newspaper text-4xl text-gray-400 mb-4"></i>
                         <p class="text-gray-600 text-lg">No stories found.</p>
+                        <p class="text-gray-500">Click "Crawl Now" to fetch the latest NIL news!</p>
                         <button onclick="crawlNow()" class="mt-4 bg-green-600 hover:bg-green-700 text-white px-6 py-2 rounded-lg">
                             <i class="fas fa-download mr-2"></i>Get Stories
                         </button>
@@ -727,7 +742,7 @@ HTML_TEMPLATE = """
                 return;
             }
             
-            container.innerHTML = allStories.map(story => `
+            container.innerHTML = filteredStories.map(story => `
                 <article class="bg-white rounded-lg shadow-md hover:shadow-lg card-hover p-6 mb-6">
                     <div class="flex items-start justify-between mb-4">
                         <div class="flex gap-2">
@@ -763,7 +778,7 @@ HTML_TEMPLATE = """
         async function loadTwitterPosts() {
             try {
                 const response = await fetch('/api/twitter?limit=30');
-                if (!response.ok) throw new Error(`HTTP ${response.status}`);
+                if (!response.ok) throw new Error(`HTTP ${response.status}: ${response.statusText}`);
                 
                 const tweets = await response.json();
                 allTweets = tweets;
@@ -771,6 +786,7 @@ HTML_TEMPLATE = """
                 renderTwitterPosts();
                 
             } catch (error) {
+                console.error('Error loading Twitter posts:', error);
                 document.getElementById('twitter-container').innerHTML = 
                     `<div class="text-center text-red-500 py-8">
                         <p>Error loading Twitter feed: ${error.message}</p>
@@ -789,6 +805,7 @@ HTML_TEMPLATE = """
                     <div class="text-center py-8">
                         <i class="fab fa-twitter text-4xl text-blue-400 mb-4"></i>
                         <p class="text-gray-600 text-lg">No Twitter posts found.</p>
+                        <p class="text-gray-500">Click "Crawl Twitter" to fetch the latest NIL tweets!</p>
                         <button onclick="crawlTwitterNow()" class="mt-4 bg-purple-600 hover:bg-purple-700 text-white px-6 py-2 rounded-lg">
                             <i class="fab fa-twitter mr-2"></i>Get Tweets
                         </button>
@@ -830,7 +847,7 @@ HTML_TEMPLATE = """
         async function loadInstagramPosts() {
             try {
                 const response = await fetch('/api/instagram?limit=30');
-                if (!response.ok) throw new Error(`HTTP ${response.status}`);
+                if (!response.ok) throw new Error(`HTTP ${response.status}: ${response.statusText}`);
                 
                 const posts = await response.json();
                 allInstagramPosts = posts;
@@ -838,6 +855,7 @@ HTML_TEMPLATE = """
                 renderInstagramPosts();
                 
             } catch (error) {
+                console.error('Error loading Instagram posts:', error);
                 document.getElementById('instagram-container').innerHTML = 
                     `<div class="text-center text-red-500 py-8">
                         <p>Error loading Instagram feed: ${error.message}</p>
@@ -856,6 +874,7 @@ HTML_TEMPLATE = """
                     <div class="text-center py-8">
                         <i class="fab fa-instagram text-4xl text-pink-500 mb-4"></i>
                         <p class="text-gray-600 text-lg">No Instagram posts found.</p>
+                        <p class="text-gray-500">Click "Crawl Instagram" to fetch the latest NIL posts!</p>
                         <button onclick="crawlInstagramNow()" class="mt-4 bg-pink-600 hover:bg-pink-700 text-white px-6 py-2 rounded-lg">
                             <i class="fab fa-instagram mr-2"></i>Get Posts
                         </button>
@@ -897,7 +916,7 @@ HTML_TEMPLATE = """
         async function loadTikTokPosts() {
             try {
                 const response = await fetch('/api/tiktok?limit=30');
-                if (!response.ok) throw new Error(`HTTP ${response.status}`);
+                if (!response.ok) throw new Error(`HTTP ${response.status}: ${response.statusText}`);
                 
                 const posts = await response.json();
                 allTikTokPosts = posts;
@@ -905,6 +924,7 @@ HTML_TEMPLATE = """
                 renderTikTokPosts();
                 
             } catch (error) {
+                console.error('Error loading TikTok posts:', error);
                 document.getElementById('tiktok-container').innerHTML = 
                     `<div class="text-center text-red-500 py-8">
                         <p>Error loading TikTok feed: ${error.message}</p>
@@ -923,6 +943,7 @@ HTML_TEMPLATE = """
                     <div class="text-center py-8">
                         <i class="fab fa-tiktok text-4xl text-gray-800 mb-4"></i>
                         <p class="text-gray-600 text-lg">No TikTok videos found.</p>
+                        <p class="text-gray-500">Click "Crawl TikTok" to fetch the latest NIL videos!</p>
                         <button onclick="crawlTikTokNow()" class="mt-4 bg-gray-800 hover:bg-gray-900 text-white px-6 py-2 rounded-lg">
                             <i class="fab fa-tiktok mr-2"></i>Get Videos
                         </button>
@@ -1112,7 +1133,7 @@ async def dashboard():
 
 @app.get("/api/summaries")
 async def get_summaries(limit: int = 50):
-    """Get story summaries with better error handling."""
+    """Get story summaries with bulletproof error handling."""
     try:
         if not os.path.exists(DB_PATH):
             return []
@@ -1148,18 +1169,17 @@ async def get_summaries(limit: int = 50):
                 }
                 stories.append(story)
             except Exception as e:
-                logger.warning(f"Failed to process story row: {e}")
                 continue
         
         return stories
         
     except Exception as e:
-        logger.error(f"Database query failed: {e}")
+        print(f"[error] Database query failed: {e}")
         return []
 
 @app.get("/api/twitter")
 async def get_twitter_posts(limit: int = 30):
-    """Get Twitter posts with better error handling."""
+    """Get Twitter posts with NIL content."""
     try:
         if not os.path.exists(DB_PATH):
             return []
@@ -1193,18 +1213,17 @@ async def get_twitter_posts(limit: int = 30):
                 }
                 tweets.append(tweet)
             except Exception as e:
-                logger.warning(f"Failed to process tweet row: {e}")
                 continue
         
         return tweets
         
     except Exception as e:
-        logger.error(f"Twitter database query failed: {e}")
+        print(f"[error] Twitter database query failed: {e}")
         return []
 
 @app.get("/api/instagram")
 async def get_instagram_posts(limit: int = 30):
-    """Get Instagram posts with better error handling."""
+    """Get Instagram posts with NIL content."""
     try:
         if not os.path.exists(DB_PATH):
             return []
@@ -1238,18 +1257,17 @@ async def get_instagram_posts(limit: int = 30):
                 }
                 posts.append(post)
             except Exception as e:
-                logger.warning(f"Failed to process Instagram row: {e}")
                 continue
         
         return posts
         
     except Exception as e:
-        logger.error(f"Instagram database query failed: {e}")
+        print(f"[error] Instagram database query failed: {e}")
         return []
 
 @app.get("/api/tiktok")
 async def get_tiktok_posts(limit: int = 30):
-    """Get TikTok posts with better error handling."""
+    """Get TikTok posts with NIL content."""
     try:
         if not os.path.exists(DB_PATH):
             return []
@@ -1283,128 +1301,106 @@ async def get_tiktok_posts(limit: int = 30):
                 }
                 posts.append(post)
             except Exception as e:
-                logger.warning(f"Failed to process TikTok row: {e}")
                 continue
         
         return posts
         
     except Exception as e:
-        logger.error(f"TikTok database query failed: {e}")
+        print(f"[error] TikTok database query failed: {e}")
         return []
 
 @app.post("/api/crawl")
 async def manual_crawl():
-    """Trigger manual crawl with error handling."""
+    """Trigger manual crawl."""
     try:
         asyncio.create_task(crawl_feeds())
         return {"status": "crawl started"}
     except Exception as e:
-        logger.error(f"Manual crawl failed: {e}")
         return {"status": "error", "message": str(e)}
 
 @app.post("/api/crawl-twitter")
 async def manual_twitter_crawl():
-    """Trigger manual Twitter crawl with error handling."""
+    """Trigger manual Twitter crawl."""
     try:
         asyncio.create_task(crawl_twitter_feeds())
         return {"status": "twitter crawl started"}
     except Exception as e:
-        logger.error(f"Manual Twitter crawl failed: {e}")
         return {"status": "error", "message": str(e)}
 
 @app.post("/api/crawl-instagram")
 async def manual_instagram_crawl():
-    """Trigger manual Instagram crawl with error handling."""
+    """Trigger manual Instagram crawl."""
     try:
         asyncio.create_task(crawl_instagram_feeds())
         return {"status": "instagram crawl started"}
     except Exception as e:
-        logger.error(f"Manual Instagram crawl failed: {e}")
         return {"status": "error", "message": str(e)}
 
 @app.post("/api/crawl-tiktok")
 async def manual_tiktok_crawl():
-    """Trigger manual TikTok crawl with error handling."""
+    """Trigger manual TikTok crawl."""
     try:
         asyncio.create_task(crawl_tiktok_feeds())
         return {"status": "tiktok crawl started"}
     except Exception as e:
-        logger.error(f"Manual TikTok crawl failed: {e}")
         return {"status": "error", "message": str(e)}
 
 @app.get("/health")
 async def health():
-    """Health check with proper error handling."""
+    """Health check."""
     try:
         if os.path.exists(DB_PATH):
             db = await aiosqlite.connect(DB_PATH)
-            try:
-                async with db.execute("SELECT COUNT(*) FROM stories") as cur:
-                    story_count = (await cur.fetchone())[0]
-                async with db.execute("SELECT COUNT(*) FROM twitter_posts") as cur:
-                    twitter_count = (await cur.fetchone())[0]
-                async with db.execute("SELECT COUNT(*) FROM instagram_posts") as cur:
-                    instagram_count = (await cur.fetchone())[0]
-                async with db.execute("SELECT COUNT(*) FROM tiktok_posts") as cur:
-                    tiktok_count = (await cur.fetchone())[0]
-                await db.close()
-                return {
-                    "status": "healthy", 
-                    "stories": story_count,
-                    "twitter": twitter_count,
-                    "instagram": instagram_count,
-                    "tiktok": tiktok_count,
-                    "version": "4.0.0"
-                }
-            except Exception as e:
-                await db.close()
-                raise e
-        else:
+            async with db.execute("SELECT COUNT(*) FROM stories") as cur:
+                story_count = (await cur.fetchone())[0]
+            async with db.execute("SELECT COUNT(*) FROM twitter_posts") as cur:
+                twitter_count = (await cur.fetchone())[0]
+            async with db.execute("SELECT COUNT(*) FROM instagram_posts") as cur:
+                instagram_count = (await cur.fetchone())[0]
+            async with db.execute("SELECT COUNT(*) FROM tiktok_posts") as cur:
+                tiktok_count = (await cur.fetchone())[0]
+            await db.close()
             return {
                 "status": "healthy", 
-                "stories": 0, 
-                "twitter": 0,
-                "instagram": 0,
-                "tiktok": 0,
+                "stories": story_count,
+                "twitter": twitter_count,
+                "instagram": instagram_count,
+                "tiktok": tiktok_count,
                 "version": "4.0.0"
             }
+        else:
+            return {"status": "healthy", "stories": 0, "version": "4.0.0"}
     except Exception as e:
-        logger.error(f"Health check failed: {e}")
         return {"status": "error", "message": str(e)}
 
-# Enhanced background crawling with better error handling
+# Enhanced background crawling
 async def background_crawler():
-    """Enhanced background crawler for all platforms with error handling."""
-    logger.info("Starting initial crawls...")
+    """Enhanced background crawler for all platforms."""
+    # Do first crawl immediately
+    print("[info] Starting initial crawls...")
+    if not crawl_in_progress:
+        await crawl_feeds()
     
-    # Initial crawls with delays
-    try:
-        if not crawl_in_progress:
-            await crawl_feeds()
-        
-        await asyncio.sleep(30)
-        
-        if not twitter_crawl_in_progress:
-            await crawl_twitter_feeds()
-        
-        await asyncio.sleep(30)
-        
-        if not instagram_crawl_in_progress:
-            await crawl_instagram_feeds()
-        
-        await asyncio.sleep(30)
-        
-        if not tiktok_crawl_in_progress:
-            await crawl_tiktok_feeds()
-            
-    except Exception as e:
-        logger.error(f"Initial crawl failed: {e}")
+    await asyncio.sleep(30)
     
-    # Continuous crawling loop
+    if not twitter_crawl_in_progress:
+        await crawl_twitter_feeds()
+    
+    await asyncio.sleep(30)
+    
+    if not instagram_crawl_in_progress:
+        await crawl_instagram_feeds()
+    
+    await asyncio.sleep(30)
+    
+    if not tiktok_crawl_in_progress:
+        await crawl_tiktok_feeds()
+    
     while True:
         try:
             await asyncio.sleep(300)  # Wait 5 minutes
             
+            # Crawl all platforms sequentially
             if not crawl_in_progress:
                 await crawl_feeds()
                 await asyncio.sleep(30)
@@ -1421,283 +1417,19 @@ async def background_crawler():
                 await crawl_tiktok_feeds()
                 
         except Exception as e:
-            logger.error(f"Background crawler failed: {e}")
-            await asyncio.sleep(60)  # Wait longer on error
+            print(f"[error] Background crawler failed: {e}")
+            await asyncio.sleep(60)
 
 @app.on_event("startup")
 async def startup():
-    """Start enhanced background tasks with error handling."""
+    """Start enhanced background tasks."""
     try:
         await init_db()
         asyncio.create_task(background_crawler())
-        logger.info("NIL News Hub Pro started successfully")
+        print("[info] NIL News Hub Pro started successfully with all social platforms")
     except Exception as e:
-        logger.error(f"Startup failed: {e}")
-        # Don't raise the error to allow the app to start even if some parts fail
-
-@app.on_event("shutdown")
-async def shutdown():
-    """Graceful shutdown."""
-    logger.info("NIL News Hub Pro shutting down...")
+        print(f"[error] Startup failed: {e}")
 
 if __name__ == "__main__":
     import uvicorn
-    
-    # Get configuration from environment
-    host = os.getenv("HOST", "0.0.0.0")
-    port = int(os.getenv("PORT", "8000"))
-    
-    logger.info(f"Starting NIL News Hub Pro on {host}:{port}")
-    
-    uvicorn.run(
-        app, 
-        host=host, 
-        port=port,
-        log_level="info",
-        access_log=True
-    )
-    except Exception as e:
-        logger.error(f"Failed to add Twitter directory: {e}")
-    
-    return added_count
-
-# Enhanced Instagram crawler using news coverage
-async def crawl_instagram_feeds():
-    """Enhanced Instagram crawling using news coverage."""
-    global instagram_crawl_in_progress
-    
-    if instagram_crawl_in_progress:
-        return
-    
-    instagram_crawl_in_progress = True
-    logger.info("Starting Instagram news crawl...")
-    
-    try:
-        await init_db()
-        db = await aiosqlite.connect(DB_PATH)
-        posts_added = 0
-        
-        async with httpx.AsyncClient(
-            timeout=12.0, 
-            headers={
-                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
-                'Accept': 'application/rss+xml, application/xml, text/xml'
-            },
-            follow_redirects=True
-        ) as client:
-            
-            for feed_url in INSTAGRAM_RSS_FEEDS:
-                try:
-                    response = await safe_http_get(client, feed_url)
-                    if not response:
-                        continue
-                        
-                    feed = feedparser.parse(response.text)
-                    
-                    if not hasattr(feed, 'entries') or not feed.entries:
-                        continue
-                    
-                    for entry in feed.entries[:3]:
-                        try:
-                            if await process_social_news_entry(entry, db, "instagram"):
-                                posts_added += 1
-                        except Exception as e:
-                            logger.warning(f"Failed to process Instagram entry: {e}")
-                            continue
-                            
-                except Exception as e:
-                    logger.warning(f"Failed to process Instagram feed {feed_url}: {e}")
-                    continue
-        
-        if posts_added == 0:
-            fallback_added = await add_instagram_account_directory(db)
-            posts_added = fallback_added
-        
-        await db.close()
-        logger.info(f"Instagram crawl completed. Added {posts_added} items.")
-        
-    except Exception as e:
-        logger.error(f"Instagram crawl failed: {e}")
-    finally:
-        instagram_crawl_in_progress = False
-
-# Enhanced TikTok crawler using news coverage
-async def crawl_tiktok_feeds():
-    """Enhanced TikTok crawling using news coverage."""
-    global tiktok_crawl_in_progress
-    
-    if tiktok_crawl_in_progress:
-        return
-    
-    tiktok_crawl_in_progress = True
-    logger.info("Starting TikTok news crawl...")
-    
-    try:
-        await init_db()
-        db = await aiosqlite.connect(DB_PATH)
-        posts_added = 0
-        
-        async with httpx.AsyncClient(
-            timeout=12.0, 
-            headers={
-                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
-                'Accept': 'application/rss+xml, application/xml, text/xml'
-            },
-            follow_redirects=True
-        ) as client:
-            
-            for feed_url in TIKTOK_RSS_FEEDS:
-                try:
-                    response = await safe_http_get(client, feed_url)
-                    if not response:
-                        continue
-                        
-                    feed = feedparser.parse(response.text)
-                    
-                    if not hasattr(feed, 'entries') or not feed.entries:
-                        continue
-                    
-                    for entry in feed.entries[:3]:
-                        try:
-                            if await process_social_news_entry(entry, db, "tiktok"):
-                                posts_added += 1
-                        except Exception as e:
-                            logger.warning(f"Failed to process TikTok entry: {e}")
-                            continue
-                            
-                except Exception as e:
-                    logger.warning(f"Failed to process TikTok feed {feed_url}: {e}")
-                    continue
-        
-        if posts_added == 0:
-            fallback_added = await add_tiktok_account_directory(db)
-            posts_added = fallback_added
-        
-        await db.close()
-        logger.info(f"TikTok crawl completed. Added {posts_added} items.")
-        
-    except Exception as e:
-        logger.error(f"TikTok crawl failed: {e}")
-    finally:
-        tiktok_crawl_in_progress = False
-
-# Process social media news entries
-async def process_social_news_entry(entry: dict, db, platform: str) -> bool:
-    """Process news articles about social media platforms with better error handling."""
-    try:
-        if not entry:
-            return False
-            
-        url = entry.get("link")
-        if not url or not isinstance(url, str):
-            return False
-        
-        post_id = hashlib.sha256(str(url).encode('utf-8')).hexdigest()
-        table_name = f"{platform}_posts"
-        
-        async with db.execute(f"SELECT 1 FROM {table_name} WHERE id=?", (post_id,)) as cur:
-            if await cur.fetchone():
-                return False
-        
-        title = str(entry.get("title", ""))
-        description = str(entry.get("summary", "") or entry.get("description", ""))
-        
-        full_text = f"{title} {description}".lower()
-        
-        # Enhanced relevance checking for social media news
-        platform_keywords = {
-            "instagram": ["instagram", "ig", "social media", "followers", "posts", "content creator"],
-            "tiktok": ["tiktok", "viral", "video", "social media", "content creator", "influencer"]
-        }
-        
-        nil_keywords = ["nil", "name image likeness", "college athlete", "student athlete", 
-                       "endorsement", "sponsorship", "collective", "ncaa"]
-        
-        has_platform = any(keyword in full_text for keyword in platform_keywords.get(platform, []))
-        has_nil = any(keyword in full_text for keyword in nil_keywords)
-        
-        if not (has_platform and has_nil):
-            return False
-        
-        source = entry.get("source", {})
-        if isinstance(source, dict):
-            author = source.get("title", "News Source")
-        else:
-            author = str(source) if source else "News Source"
-        
-        content = f"📰 {title}"
-        if description and len(description) > 50:
-            content += f" • {description[:200]}..."
-        
-        content = content.replace("&amp;", "&").replace("&lt;", "<").replace("&gt;", ">").strip()
-        
-        published = str(entry.get("published", ""))
-        crawled_at = dt.datetime.utcnow().isoformat()
-        
-        await db.execute(f"""
-            INSERT INTO {table_name} (id, author, content, url, published, crawled_at, source_type)
-            VALUES (?, ?, ?, ?, ?, ?, ?)
-        """, (post_id, author, content, str(url), published, crawled_at, f"{platform}_news"))
-        
-        await db.commit()
-        logger.info(f"Stored {platform} news: {title[:50]}...")
-        return True
-        
-    except Exception as e:
-        logger.warning(f"Failed to process {platform} entry: {e}")
-        return False
-
-# Instagram account directory fallback
-async def add_instagram_account_directory(db) -> int:
-    """Add Instagram account directory."""
-    added_count = 0
-    
-    try:
-        for account in NIL_INSTAGRAM_ACCOUNTS:
-            info_id = hashlib.sha256(f"instagram-directory-{account['handle']}-2025".encode('utf-8')).hexdigest()
-            
-            async with db.execute("SELECT 1 FROM instagram_posts WHERE id=?", (info_id,)) as cur:
-                if await cur.fetchone():
-                    continue
-            
-            content = f"📸 Follow @{account['handle']} on Instagram • {account['name']} shares NIL content, lifestyle, and behind-the-scenes college athlete experiences."
-            url = f"https://instagram.com/{account['handle']}"
-            crawled_at = dt.datetime.utcnow().isoformat()
-            
-            await db.execute("""
-                INSERT INTO instagram_posts (id, author, content, url, published, crawled_at, source_type)
-                VALUES (?, ?, ?, ?, ?, ?, ?)
-            """, (info_id, account['handle'], content, url, crawled_at, crawled_at, "instagram"))
-            
-            await db.commit()
-            added_count += 1
-            
-    except Exception as e:
-        logger.error(f"Failed to add Instagram directory: {e}")
-    
-    return added_count
-
-# TikTok account directory fallback
-async def add_tiktok_account_directory(db) -> int:
-    """Add TikTok account directory."""
-    added_count = 0
-    
-    try:
-        for account in NIL_TIKTOK_ACCOUNTS:
-            info_id = hashlib.sha256(f"tiktok-directory-{account['handle']}-2025".encode('utf-8')).hexdigest()
-            
-            async with db.execute("SELECT 1 FROM tiktok_posts WHERE id=?", (info_id,)) as cur:
-                if await cur.fetchone():
-                    continue
-            
-            content = f"🎵 Follow @{account['handle']} on TikTok • {account['name']} creates viral content, NIL partnerships, and gives fans a look into college athlete life."
-            url = f"https://tiktok.com/@{account['handle']}"
-            crawled_at = dt.datetime.utcnow().isoformat()
-            
-            await db.execute("""
-                INSERT INTO tiktok_posts (id, author, content, url, published, crawled_at, source_type)
-                VALUES (?, ?, ?, ?, ?, ?, ?)
-            """, (info_id, account['handle'], content, url, crawled_at, crawled_at, "tiktok"))
-            
-            await db.commit()
-            added_count += 1
+    uvicorn.run(app, host="0.0.0.0", port=int(os.getenv("PORT", "8000")))
