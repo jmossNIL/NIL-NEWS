@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Enhanced NIL News Aggregator with Instagram, TikTok & Twitter Integration - FIXED
+Enhanced NIL News Aggregator with Instagram, TikTok & Twitter Integration - COMPLETE
 """
 import os
 import asyncio
@@ -57,8 +57,6 @@ NIL_INSTAGRAM_ACCOUNTS = [
     {"handle": "marketpryce", "name": "MarketPryce"},
     {"handle": "iconsourceapp", "name": "Icon Source"},
     {"handle": "nilstore", "name": "NIL Store"},
-    {"handle": "espncollegesports", "name": "ESPN College Sports"},
-    {"handle": "theathletic", "name": "The Athletic"},
 ]
 
 # TikTok accounts to monitor
@@ -69,12 +67,9 @@ NIL_TIKTOK_ACCOUNTS = [
     {"handle": "lsu.gymgirl", "name": "LSU Gymnast"},
     {"handle": "opendorse", "name": "Opendorse"},
     {"handle": "marketpryce", "name": "MarketPryce"},
-    {"handle": "espncollegesports", "name": "ESPN College Sports"},
-    {"handle": "bleacherreport", "name": "Bleacher Report"},
-    {"handle": "sportscenter", "name": "SportsCenter"},
 ]
 
-# FIXED: Working Nitter instances (tested and verified)
+# FIXED: Working Nitter instances
 WORKING_NITTER_INSTANCES = [
     "https://nitter.poast.org",
     "https://nitter.privacydev.net", 
@@ -83,20 +78,20 @@ WORKING_NITTER_INSTANCES = [
 
 # FIXED: Generate Twitter RSS feeds using working instances
 TWITTER_RSS_FEEDS = []
-for instance in WORKING_NITTER_INSTANCES[:2]:  # Use only 2 instances
-    for account in NIL_TWITTER_ACCOUNTS[:3]:   # Monitor top 3 accounts only
+for instance in WORKING_NITTER_INSTANCES[:2]:
+    for account in NIL_TWITTER_ACCOUNTS[:3]:
         TWITTER_RSS_FEEDS.append(f"{instance}/{account['handle']}/rss")
 
 # Instagram and TikTok RSS feeds
 INSTAGRAM_RSS_FEEDS = [
-    f"https://imginn.org/{account['handle']}/rss" for account in NIL_INSTAGRAM_ACCOUNTS[:8]
+    f"https://imginn.org/{account['handle']}/rss" for account in NIL_INSTAGRAM_ACCOUNTS[:6]
 ]
 
 TIKTOK_RSS_FEEDS = [
-    f"https://www.tiktok.com/@{account['handle']}/rss" for account in NIL_TIKTOK_ACCOUNTS[:8]
+    f"https://www.tiktok.com/@{account['handle']}/rss" for account in NIL_TIKTOK_ACCOUNTS[:6]
 ]
 
-# FIXED: Enhanced Twitter search using Google News (more reliable)
+# FIXED: Enhanced Twitter search using Google News
 TWITTER_SEARCH_FEEDS = [
     "https://news.google.com/rss/search?q=%22NIL%22+%22college+athlete%22+social+media&hl=en-US&gl=US&ceid=US:en",
     "https://news.google.com/rss/search?q=%22NIL+deal%22+twitter&hl=en-US&gl=US&ceid=US:en",
@@ -116,7 +111,6 @@ async def init_db():
     try:
         db = await aiosqlite.connect(DB_PATH)
         
-        # Stories table
         await db.execute("""
             CREATE TABLE IF NOT EXISTS stories (
                 id TEXT PRIMARY KEY,
@@ -131,7 +125,6 @@ async def init_db():
             )
         """)
         
-        # Twitter posts table
         await db.execute("""
             CREATE TABLE IF NOT EXISTS twitter_posts (
                 id TEXT PRIMARY KEY,
@@ -144,7 +137,6 @@ async def init_db():
             )
         """)
         
-        # Instagram posts table
         await db.execute("""
             CREATE TABLE IF NOT EXISTS instagram_posts (
                 id TEXT PRIMARY KEY,
@@ -157,7 +149,6 @@ async def init_db():
             )
         """)
         
-        # TikTok posts table
         await db.execute("""
             CREATE TABLE IF NOT EXISTS tiktok_posts (
                 id TEXT PRIMARY KEY,
@@ -172,7 +163,7 @@ async def init_db():
         
         await db.commit()
         await db.close()
-        print("[info] Database initialized successfully with all social media tables")
+        print("[info] Database initialized successfully")
         
     except Exception as e:
         print(f"[error] Database initialization failed: {e}")
@@ -183,7 +174,7 @@ def is_relevant(text: str) -> bool:
     """Enhanced relevance checking."""
     text_lower = text.lower()
     keywords_lower = [k.lower() for k in KEYWORDS]
-    nil_keywords = ["nil", "name image likeness", "collective", "endorsement", "sponsorship", 
+    nil_keywords = ["nil", "name image likeness", "collective", "endorsement", 
                    "student athlete", "college athlete", "college sports", "ncaa", "booster"]
     all_keywords = keywords_lower + nil_keywords
     return any(keyword in text_lower for keyword in all_keywords)
@@ -239,13 +230,12 @@ def simple_summarize(text: str) -> str:
     
     return summary if summary else "Summary not available"
 
-# Crawler functions
+# Main crawler
 async def crawl_feeds():
     """Simple, reliable feed crawling."""
     global crawl_in_progress
     
     if crawl_in_progress:
-        print("[info] Crawl already in progress, skipping")
         return
     
     crawl_in_progress = True
@@ -259,16 +249,13 @@ async def crawl_feeds():
         async with httpx.AsyncClient(timeout=10.0, headers={'User-Agent': 'NIL-News-Bot/1.0'}) as client:
             for feed_url in FEEDS:
                 try:
-                    print(f"[info] Crawling {feed_url}")
                     response = await client.get(feed_url)
                     if response.status_code != 200:
-                        print(f"[warn] HTTP {response.status_code} for {feed_url}")
                         continue
                         
                     feed = feedparser.parse(response.text)
                     
                     if not hasattr(feed, 'entries') or not feed.entries:
-                        print(f"[warn] No entries found in {feed_url}")
                         continue
                     
                     for entry in feed.entries[:5]:
@@ -276,7 +263,6 @@ async def crawl_feeds():
                             stories_added += 1
                             
                 except Exception as e:
-                    print(f"[error] Failed to process {feed_url}: {e}")
                     continue
         
         await db.close()
@@ -288,7 +274,7 @@ async def crawl_feeds():
         crawl_in_progress = False
 
 async def process_entry(entry: dict, db) -> bool:
-    """Simple, reliable entry processing."""
+    """Simple entry processing."""
     try:
         url = entry.get("link")
         if not url:
@@ -300,19 +286,7 @@ async def process_entry(entry: dict, db) -> bool:
                 return False
         
         title = entry.get("title", "No title")
-        
-        # Get content with better fallback
-        text = ""
-        try:
-            async with httpx.AsyncClient(timeout=8.0, headers={'User-Agent': 'NIL-News-Bot/1.0'}) as client:
-                response = await client.get(url)
-                if response.status_code == 200:
-                    text = extract(response.text) or response.text[:1000]
-        except:
-            pass
-        
-        if not text:
-            text = entry.get("summary", "") + " " + entry.get("description", "")
+        text = entry.get("summary", "") + " " + entry.get("description", "")
         
         if not text:
             return False
@@ -332,113 +306,76 @@ async def process_entry(entry: dict, db) -> bool:
         """, (story_id, title, url, published, text[:2000], brief, crawled_at, source, category))
         
         await db.commit()
-        print(f"[+] Stored: {title[:50]}... [{source}]")
+        print(f"[+] Stored: {title[:50]}...")
         return True
         
     except Exception as e:
-        print(f"[error] Failed to process entry: {e}")
         return False
 
 # FIXED: Enhanced Twitter crawler
 async def crawl_twitter_feeds():
-    """Enhanced Twitter RSS crawling with bulletproof error handling."""
+    """Enhanced Twitter RSS crawling."""
     global twitter_crawl_in_progress
     
     if twitter_crawl_in_progress:
-        print("[info] Twitter crawl already in progress, skipping")
         return
     
     twitter_crawl_in_progress = True
-    print("[info] Starting enhanced Twitter feed crawl...")
+    print("[info] Starting Twitter crawl...")
     
     try:
         await init_db()
         db = await aiosqlite.connect(DB_PATH)
         tweets_added = 0
         
-        # Combine all Twitter feed sources
         all_twitter_feeds = TWITTER_RSS_FEEDS + TWITTER_SEARCH_FEEDS
         
-        # Enhanced HTTP client with better headers
-        async with httpx.AsyncClient(
-            timeout=12.0, 
-            headers={
-                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36',
-                'Accept': 'application/rss+xml, application/xml, text/xml, */*',
-                'Accept-Language': 'en-US,en;q=0.9'
-            }
-        ) as client:
-            
-            # Try each feed with individual error handling
+        async with httpx.AsyncClient(timeout=12.0, headers={'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'}) as client:
             for feed_url in all_twitter_feeds:
                 try:
-                    print(f"[info] Attempting Twitter feed: {feed_url}")
                     response = await client.get(feed_url)
-                    
                     if response.status_code != 200:
-                        print(f"[warn] HTTP {response.status_code} for {feed_url}")
                         continue
                     
-                    # Parse RSS feed
                     feed = feedparser.parse(response.text)
-                    
                     if not hasattr(feed, 'entries') or not feed.entries:
-                        print(f"[warn] No entries found in {feed_url}")
                         continue
                     
-                    # Process each entry with error handling
-                    for entry in feed.entries[:2]:  # Limit to 2 per feed
-                        try:
-                            if await process_social_entry_safe(entry, db, "twitter"):
-                                tweets_added += 1
-                        except Exception as entry_error:
-                            print(f"[error] Failed to process entry: {entry_error}")
-                            continue
+                    for entry in feed.entries[:2]:
+                        if await process_social_entry(entry, db, "twitter"):
+                            tweets_added += 1
                             
-                except Exception as feed_error:
-                    print(f"[error] Failed to process Twitter feed {feed_url}: {feed_error}")
+                except Exception as e:
                     continue
             
-            # Fallback: Add Twitter account directory if no content found
             if tweets_added == 0:
-                print("[info] No Twitter RSS content found, adding account directory")
                 fallback_added = await add_twitter_account_directory(db)
                 tweets_added = fallback_added
         
         await db.close()
-        print(f"[info] Twitter crawl completed. Added {tweets_added} new items.")
+        print(f"[info] Twitter crawl completed. Added {tweets_added} items.")
         
     except Exception as e:
         print(f"[error] Twitter crawl failed: {e}")
-        import traceback
-        traceback.print_exc()
     finally:
         twitter_crawl_in_progress = False
 
-# NEW: Twitter account directory fallback
 async def add_twitter_account_directory(db) -> int:
-    """Add Twitter account directory when RSS feeds aren't working."""
+    """Add Twitter account directory."""
     added_count = 0
     
     try:
         for account in NIL_TWITTER_ACCOUNTS:
-            # Create unique ID for account info
             info_id = hashlib.sha256(f"twitter-directory-{account['handle']}-2025".encode('utf-8')).hexdigest()
             
-            # Check if already exists
-            try:
-                async with db.execute("SELECT 1 FROM twitter_posts WHERE id=?", (info_id,)) as cur:
-                    if await cur.fetchone():
-                        continue
-            except Exception:
-                continue
+            async with db.execute("SELECT 1 FROM twitter_posts WHERE id=?", (info_id,)) as cur:
+                if await cur.fetchone():
+                    continue
             
-            # Create account information content
-            content = f"📱 Follow @{account['handle']} for NIL updates • {account['name']} provides comprehensive Name, Image, and Likeness coverage for college athletes and industry developments."
+            content = f"📱 Follow @{account['handle']} for NIL updates • {account['name']} provides comprehensive Name, Image, and Likeness coverage."
             url = f"https://twitter.com/{account['handle']}"
             crawled_at = dt.datetime.utcnow().isoformat()
             
-            # Insert account info
             await db.execute("""
                 INSERT INTO twitter_posts (id, author, content, url, published, crawled_at, source_type)
                 VALUES (?, ?, ?, ?, ?, ?, ?)
@@ -446,23 +383,20 @@ async def add_twitter_account_directory(db) -> int:
             
             await db.commit()
             added_count += 1
-            print(f"[+] Added Twitter directory entry: @{account['handle']}")
             
     except Exception as e:
-        print(f"[error] Failed to add Twitter account directory: {e}")
+        print(f"[error] Failed to add Twitter directory: {e}")
     
     return added_count
 
 async def crawl_instagram_feeds():
-    """Crawl Instagram RSS feeds for NIL content."""
+    """Crawl Instagram feeds."""
     global instagram_crawl_in_progress
     
     if instagram_crawl_in_progress:
-        print("[info] Instagram crawl already in progress, skipping")
         return
     
     instagram_crawl_in_progress = True
-    print("[info] Starting Instagram feed crawl...")
     
     try:
         await init_db()
@@ -472,28 +406,23 @@ async def crawl_instagram_feeds():
         async with httpx.AsyncClient(timeout=8.0, headers={'User-Agent': 'NIL-News-Bot/1.0'}) as client:
             for feed_url in INSTAGRAM_RSS_FEEDS:
                 try:
-                    print(f"[info] Crawling Instagram feed: {feed_url}")
                     response = await client.get(feed_url)
                     if response.status_code != 200:
-                        print(f"[warn] HTTP {response.status_code} for {feed_url}")
                         continue
                         
                     feed = feedparser.parse(response.text)
-                    
                     if not hasattr(feed, 'entries') or not feed.entries:
-                        print(f"[warn] No Instagram entries found in {feed_url}")
                         continue
                     
                     for entry in feed.entries[:3]:
-                        if await process_social_entry_safe(entry, db, "instagram"):
+                        if await process_social_entry(entry, db, "instagram"):
                             posts_added += 1
                             
                 except Exception as e:
-                    print(f"[error] Failed to process Instagram feed {feed_url}: {e}")
                     continue
         
         await db.close()
-        print(f"[info] Instagram crawl completed. Added {posts_added} new posts.")
+        print(f"[info] Instagram crawl completed. Added {posts_added} posts.")
         
     except Exception as e:
         print(f"[error] Instagram crawl failed: {e}")
@@ -501,15 +430,13 @@ async def crawl_instagram_feeds():
         instagram_crawl_in_progress = False
 
 async def crawl_tiktok_feeds():
-    """Crawl TikTok RSS feeds for NIL content."""
+    """Crawl TikTok feeds."""
     global tiktok_crawl_in_progress
     
     if tiktok_crawl_in_progress:
-        print("[info] TikTok crawl already in progress, skipping")
         return
     
     tiktok_crawl_in_progress = True
-    print("[info] Starting TikTok feed crawl...")
     
     try:
         await init_db()
@@ -519,116 +446,86 @@ async def crawl_tiktok_feeds():
         async with httpx.AsyncClient(timeout=8.0, headers={'User-Agent': 'NIL-News-Bot/1.0'}) as client:
             for feed_url in TIKTOK_RSS_FEEDS:
                 try:
-                    print(f"[info] Crawling TikTok feed: {feed_url}")
                     response = await client.get(feed_url)
                     if response.status_code != 200:
-                        print(f"[warn] HTTP {response.status_code} for {feed_url}")
                         continue
                         
                     feed = feedparser.parse(response.text)
-                    
                     if not hasattr(feed, 'entries') or not feed.entries:
-                        print(f"[warn] No TikTok entries found in {feed_url}")
                         continue
                     
                     for entry in feed.entries[:3]:
-                        if await process_social_entry_safe(entry, db, "tiktok"):
+                        if await process_social_entry(entry, db, "tiktok"):
                             posts_added += 1
                             
                 except Exception as e:
-                    print(f"[error] Failed to process TikTok feed {feed_url}: {e}")
                     continue
         
         await db.close()
-        print(f"[info] TikTok crawl completed. Added {posts_added} new posts.")
+        print(f"[info] TikTok crawl completed. Added {posts_added} posts.")
         
     except Exception as e:
         print(f"[error] TikTok crawl failed: {e}")
     finally:
         tiktok_crawl_in_progress = False
 
-# FIXED: Safe social entry processing
-async def process_social_entry_safe(entry: dict, db, platform: str) -> bool:
-    """Bulletproof social media entry processing with comprehensive error handling."""
+async def process_social_entry(entry: dict, db, platform: str) -> bool:
+    """Process social media entry."""
     try:
-        # Validate entry has required fields
         url = entry.get("link")
         if not url or not isinstance(url, str):
             return False
         
-        # Generate unique post ID
         post_id = hashlib.sha256(url.encode('utf-8')).hexdigest()
         table_name = f"{platform}_posts"
         
-        # Check if already exists (with proper error handling)
-        try:
-            async with db.execute(f"SELECT 1 FROM {table_name} WHERE id=?", (post_id,)) as cur:
-                if await cur.fetchone():
-                    return False
-        except Exception as db_error:
-            print(f"[error] Database check failed: {db_error}")
-            return False
+        async with db.execute(f"SELECT 1 FROM {table_name} WHERE id=?", (post_id,)) as cur:
+            if await cur.fetchone():
+                return False
         
-        # Extract content safely
         title = str(entry.get("title", ""))
         content = str(entry.get("summary", "") or entry.get("description", ""))
         
-        # Validate content exists
         if not title and not content:
             return False
         
-        # Enhanced relevance checking
         if not is_relevant(f"{title} {content}"):
             return False
         
-        # Extract author safely
         author = "Unknown"
-        try:
-            if platform == "twitter":
-                if ": " in title:
-                    author_part = title.split(": ")[0].strip()
-                    author = author_part.replace("@", "").replace("RT ", "")
-                    if len(title.split(": ")) > 1:
-                        content = title.split(": ", 1)[1].strip()
-            elif platform == "instagram" and "@" in title:
-                author_match = title.split("@")[1].split()[0] if len(title.split("@")) > 1 else "Unknown"
-                author = author_match
-            elif platform == "tiktok" and "by @" in title:
-                author_match = title.split("by @")[1].split()[0] if len(title.split("by @")) > 1 else "Unknown"
-                author = author_match
-        except Exception as parse_error:
-            print(f"[warn] Author parsing failed: {parse_error}")
-            author = "Unknown"
+        if platform == "twitter" and ": " in title:
+            author_part = title.split(": ")[0].strip()
+            author = author_part.replace("@", "").replace("RT ", "")
+            content = title.split(": ", 1)[1].strip() if len(title.split(": ")) > 1 else content
+        elif platform == "instagram" and "@" in title:
+            author = title.split("@")[1].split()[0] if len(title.split("@")) > 1 else "Unknown"
+        elif platform == "tiktok" and "by @" in title:
+            author = title.split("by @")[1].split()[0] if len(title.split("by @")) > 1 else "Unknown"
         
-        # Clean and validate content
-        content = content.replace("&amp;", "&").replace("&lt;", "<").replace("&gt;", ">")
-        content = content.strip()
+        content = content.replace("&amp;", "&").replace("&lt;", "<").replace("&gt;", ">").strip()
         
-        if len(content) > 1000:  # Truncate very long content
+        if len(content) > 1000:
             content = content[:1000] + "..."
         
-        # Get timestamp
         published = str(entry.get("published", ""))
         crawled_at = dt.datetime.utcnow().isoformat()
         
-        # Insert into database with parameterized query
         await db.execute(f"""
             INSERT INTO {table_name} (id, author, content, url, published, crawled_at, source_type)
             VALUES (?, ?, ?, ?, ?, ?, ?)
         """, (post_id, author, content, url, published, crawled_at, platform))
         
         await db.commit()
-        print(f"[+] Stored {platform} post: @{author}: {content[:50]}...")
+        print(f"[+] Stored {platform}: @{author}")
         return True
         
     except Exception as e:
-        print(f"[error] Failed to process {platform} entry: {e}")
         return False
 
 # FastAPI app
 app = FastAPI(title="NIL News Hub Pro", version="4.0.0")
 
-# Enhanced HTML template with four tabs
+# Complete HTML template
 HTML_TEMPLATE = """
 <!DOCTYPE html>
 <html lang="en">
@@ -648,7 +545,6 @@ HTML_TEMPLATE = """
     </style>
 </head>
 <body class="bg-gray-50">
-    <!-- Header -->
     <header class="gradient-bg text-white py-8">
         <div class="container mx-auto px-6">
             <h1 class="text-4xl font-bold mb-2">
@@ -658,12 +554,11 @@ HTML_TEMPLATE = """
         </div>
     </header>
 
-    <!-- Tabs -->
     <div class="container mx-auto px-6 pt-6">
         <div class="bg-white rounded-lg shadow-md mb-6">
             <div class="flex border-b overflow-x-auto">
                 <button onclick="showTab('news')" id="news-tab" class="tab-active px-6 py-3 font-medium rounded-tl-lg flex-shrink-0">
-                    <i class="fas fa-newspaper mr-2"></i>News Feed
+                    <i class="fas fa-newspaper mr-2"></i>News
                 </button>
                 <button onclick="showTab('twitter')" id="twitter-tab" class="px-6 py-3 font-medium hover:bg-gray-50 flex-shrink-0">
                     <i class="fab fa-twitter mr-2"></i>Twitter
@@ -677,24 +572,15 @@ HTML_TEMPLATE = """
             </div>
         </div>
 
-        <!-- News Tab -->
         <div id="news-content" class="tab-content">
             <div class="bg-white rounded-lg shadow-md p-4 mb-6">
                 <div class="flex gap-4 items-center flex-wrap">
                     <button onclick="refreshStories()" class="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-lg">
-                        <i class="fas fa-refresh mr-2"></i>Refresh Stories
+                        <i class="fas fa-refresh mr-2"></i>Refresh
                     </button>
                     <button onclick="crawlNow()" class="bg-green-600 hover:bg-green-700 text-white px-4 py-2 rounded-lg">
                         <i class="fas fa-download mr-2"></i>Crawl Now
                     </button>
-                    <select id="category-filter" onchange="filterStories()" class="border border-gray-300 rounded-lg px-3 py-2">
-                        <option value="">All Categories</option>
-                        <option value="Legal">Legal</option>
-                        <option value="Collectives">Collectives</option>
-                        <option value="Technology">Technology</option>
-                        <option value="Recruiting">Recruiting</option>
-                        <option value="General">General</option>
-                    </select>
                     <span id="story-count" class="text-gray-600 font-medium"></span>
                 </div>
             </div>
@@ -706,5 +592,815 @@ HTML_TEMPLATE = """
             </div>
         </div>
 
-        <!-- Twitter Tab -->
-        <div id="twitter
+        <div id="twitter-content" class="tab-content hidden">
+            <div class="bg-white rounded-lg shadow-md p-4 mb-6">
+                <div class="flex gap-4 items-center flex-wrap">
+                    <button onclick="refreshTwitter()" class="bg-blue-500 hover:bg-blue-600 text-white px-4 py-2 rounded-lg">
+                        <i class="fab fa-twitter mr-2"></i>Refresh Twitter
+                    </button>
+                    <button onclick="crawlTwitterNow()" class="bg-purple-600 hover:bg-purple-700 text-white px-4 py-2 rounded-lg">
+                        <i class="fas fa-search mr-2"></i>Crawl Twitter
+                    </button>
+                    <span id="twitter-count" class="text-gray-600 font-medium"></span>
+                </div>
+            </div>
+            <div id="twitter-container">
+                <div class="text-center py-8">
+                    <i class="fas fa-spinner fa-spin text-2xl text-blue-600"></i>
+                    <p class="text-gray-600 mt-2">Loading Twitter feed...</p>
+                </div>
+            </div>
+        </div>
+
+        <div id="instagram-content" class="tab-content hidden">
+            <div class="bg-white rounded-lg shadow-md p-4 mb-6">
+                <div class="flex gap-4 items-center flex-wrap">
+                    <button onclick="refreshInstagram()" class="text-white px-4 py-2 rounded-lg instagram-gradient hover:opacity-90">
+                        <i class="fab fa-instagram mr-2"></i>Refresh Instagram
+                    </button>
+                    <button onclick="crawlInstagramNow()" class="bg-pink-600 hover:bg-pink-700 text-white px-4 py-2 rounded-lg">
+                        <i class="fas fa-camera mr-2"></i>Crawl Instagram
+                    </button>
+                    <span id="instagram-count" class="text-gray-600 font-medium"></span>
+                </div>
+            </div>
+            <div id="instagram-container">
+                <div class="text-center py-8">
+                    <i class="fas fa-spinner fa-spin text-2xl text-pink-600"></i>
+                    <p class="text-gray-600 mt-2">Loading Instagram feed...</p>
+                </div>
+            </div>
+        </div>
+
+        <div id="tiktok-content" class="tab-content hidden">
+            <div class="bg-white rounded-lg shadow-md p-4 mb-6">
+                <div class="flex gap-4 items-center flex-wrap">
+                    <button onclick="refreshTikTok()" class="text-white px-4 py-2 rounded-lg tiktok-dark hover:opacity-90">
+                        <i class="fab fa-tiktok mr-2"></i>Refresh TikTok
+                    </button>
+                    <button onclick="crawlTikTokNow()" class="bg-gray-800 hover:bg-gray-900 text-white px-4 py-2 rounded-lg">
+                        <i class="fas fa-video mr-2"></i>Crawl TikTok
+                    </button>
+                    <span id="tiktok-count" class="text-gray-600 font-medium"></span>
+                </div>
+            </div>
+            <div id="tiktok-container">
+                <div class="text-center py-8">
+                    <i class="fas fa-spinner fa-spin text-2xl text-gray-800"></i>
+                    <p class="text-gray-600 mt-2">Loading TikTok feed...</p>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        let allStories = [];
+        let allTweets = [];
+        let allInstagramPosts = [];
+        let allTikTokPosts = [];
+        let currentTab = 'news';
+
+        function showTab(tabName) {
+            document.querySelectorAll('.tab-content').forEach(el => el.classList.add('hidden'));
+            document.querySelectorAll('[id$="-tab"]').forEach(el => {
+                el.classList.remove('tab-active');
+                el.classList.add('hover:bg-gray-50');
+            });
+            
+            document.getElementById(tabName + '-content').classList.remove('hidden');
+            const activeTab = document.getElementById(tabName + '-tab');
+            activeTab.classList.add('tab-active');
+            activeTab.classList.remove('hover:bg-gray-50');
+            
+            currentTab = tabName;
+            
+            if (tabName === 'twitter') {
+                loadTwitterPosts();
+            } else if (tabName === 'instagram') {
+                loadInstagramPosts();
+            } else if (tabName === 'tiktok') {
+                loadTikTokPosts();
+            }
+        }
+
+        async function loadStories() {
+            try {
+                const response = await fetch('/api/summaries?limit=50');
+                if (!response.ok) throw new Error(`HTTP ${response.status}`);
+                
+                const stories = await response.json();
+                allStories = stories;
+                document.getElementById('story-count').textContent = `${stories.length} stories loaded`;
+                renderStories();
+                
+            } catch (error) {
+                document.getElementById('stories-container').innerHTML = 
+                    `<div class="text-center text-red-500 py-8">
+                        <p>Error loading stories: ${error.message}</p>
+                        <button onclick="refreshStories()" class="mt-4 bg-blue-600 text-white px-4 py-2 rounded">
+                            Try Again
+                        </button>
+                    </div>`;
+            }
+        }
+
+        function renderStories() {
+            const container = document.getElementById('stories-container');
+            
+            if (allStories.length === 0) {
+                container.innerHTML = `
+                    <div class="text-center py-8">
+                        <i class="fas fa-newspaper text-4xl text-gray-400 mb-4"></i>
+                        <p class="text-gray-600 text-lg">No stories found.</p>
+                        <button onclick="crawlNow()" class="mt-4 bg-green-600 hover:bg-green-700 text-white px-6 py-2 rounded-lg">
+                            <i class="fas fa-download mr-2"></i>Get Stories
+                        </button>
+                    </div>
+                `;
+                return;
+            }
+            
+            container.innerHTML = allStories.map(story => `
+                <article class="bg-white rounded-lg shadow-md hover:shadow-lg card-hover p-6 mb-6">
+                    <div class="flex items-start justify-between mb-4">
+                        <div class="flex gap-2">
+                            <span class="bg-blue-500 text-white text-xs px-3 py-1 rounded-full font-medium">
+                                ${story.category || 'General'}
+                            </span>
+                            <span class="bg-green-500 text-white text-xs px-3 py-1 rounded-full font-medium">
+                                ${story.source || 'Unknown'}
+                            </span>
+                        </div>
+                        <time class="text-sm text-gray-500">
+                            ${formatDate(story.published || story.crawled_at)}
+                        </time>
+                    </div>
+                    
+                    <h2 class="text-xl font-bold text-gray-900 mb-3 leading-tight">
+                        <a href="${story.url}" target="_blank" class="hover:text-blue-600 transition-colors">
+                            ${story.title}
+                        </a>
+                    </h2>
+                    
+                    <p class="text-gray-700 mb-4 leading-relaxed">${story.brief}</p>
+                    
+                    <a href="${story.url}" target="_blank" 
+                       class="inline-flex items-center text-blue-600 hover:text-blue-800 font-medium transition-colors">
+                        Read Full Article
+                        <i class="fas fa-external-link-alt ml-2 text-sm"></i>
+                    </a>
+                </article>
+            `).join('');
+        }
+
+        async function loadTwitterPosts() {
+            try {
+                const response = await fetch('/api/twitter?limit=30');
+                if (!response.ok) throw new Error(`HTTP ${response.status}`);
+                
+                const tweets = await response.json();
+                allTweets = tweets;
+                document.getElementById('twitter-count').textContent = `${tweets.length} tweets loaded`;
+                renderTwitterPosts();
+                
+            } catch (error) {
+                document.getElementById('twitter-container').innerHTML = 
+                    `<div class="text-center text-red-500 py-8">
+                        <p>Error loading Twitter feed: ${error.message}</p>
+                        <button onclick="refreshTwitter()" class="mt-4 bg-blue-600 text-white px-4 py-2 rounded">
+                            Try Again
+                        </button>
+                    </div>`;
+            }
+        }
+
+        function renderTwitterPosts() {
+            const container = document.getElementById('twitter-container');
+            
+            if (allTweets.length === 0) {
+                container.innerHTML = `
+                    <div class="text-center py-8">
+                        <i class="fab fa-twitter text-4xl text-blue-400 mb-4"></i>
+                        <p class="text-gray-600 text-lg">No Twitter posts found.</p>
+                        <button onclick="crawlTwitterNow()" class="mt-4 bg-purple-600 hover:bg-purple-700 text-white px-6 py-2 rounded-lg">
+                            <i class="fab fa-twitter mr-2"></i>Get Tweets
+                        </button>
+                    </div>
+                `;
+                return;
+            }
+            
+            container.innerHTML = allTweets.map(tweet => `
+                <article class="bg-white rounded-lg shadow-md hover:shadow-lg card-hover p-6 mb-4">
+                    <div class="flex items-start justify-between mb-3">
+                        <div class="flex items-center gap-3">
+                            <div class="w-10 h-10 bg-blue-500 rounded-full flex items-center justify-center">
+                                <i class="fab fa-twitter text-white"></i>
+                            </div>
+                            <div>
+                                <h3 class="font-bold text-gray-900">@${tweet.author}</h3>
+                                <time class="text-sm text-gray-500">
+                                    ${formatDate(tweet.published || tweet.crawled_at)}
+                                </time>
+                            </div>
+                        </div>
+                        <span class="bg-purple-500 text-white text-xs px-2 py-1 rounded-full">
+                            Twitter
+                        </span>
+                    </div>
+                    
+                    <p class="text-gray-800 mb-4 leading-relaxed">${tweet.content}</p>
+                    
+                    <a href="${tweet.url}" target="_blank" 
+                       class="inline-flex items-center text-blue-600 hover:text-blue-800 font-medium transition-colors">
+                        View on Twitter
+                        <i class="fas fa-external-link-alt ml-2 text-sm"></i>
+                    </a>
+                </article>
+            `).join('');
+        }
+
+        async function loadInstagramPosts() {
+            try {
+                const response = await fetch('/api/instagram?limit=30');
+                if (!response.ok) throw new Error(`HTTP ${response.status}`);
+                
+                const posts = await response.json();
+                allInstagramPosts = posts;
+                document.getElementById('instagram-count').textContent = `${posts.length} posts loaded`;
+                renderInstagramPosts();
+                
+            } catch (error) {
+                document.getElementById('instagram-container').innerHTML = 
+                    `<div class="text-center text-red-500 py-8">
+                        <p>Error loading Instagram feed: ${error.message}</p>
+                        <button onclick="refreshInstagram()" class="mt-4 bg-pink-600 text-white px-4 py-2 rounded">
+                            Try Again
+                        </button>
+                    </div>`;
+            }
+        }
+
+        function renderInstagramPosts() {
+            const container = document.getElementById('instagram-container');
+            
+            if (allInstagramPosts.length === 0) {
+                container.innerHTML = `
+                    <div class="text-center py-8">
+                        <i class="fab fa-instagram text-4xl text-pink-500 mb-4"></i>
+                        <p class="text-gray-600 text-lg">No Instagram posts found.</p>
+                        <button onclick="crawlInstagramNow()" class="mt-4 bg-pink-600 hover:bg-pink-700 text-white px-6 py-2 rounded-lg">
+                            <i class="fab fa-instagram mr-2"></i>Get Posts
+                        </button>
+                    </div>
+                `;
+                return;
+            }
+            
+            container.innerHTML = allInstagramPosts.map(post => `
+                <article class="bg-white rounded-lg shadow-md hover:shadow-lg card-hover p-6 mb-4">
+                    <div class="flex items-start justify-between mb-3">
+                        <div class="flex items-center gap-3">
+                            <div class="w-10 h-10 instagram-gradient rounded-full flex items-center justify-center">
+                                <i class="fab fa-instagram text-white"></i>
+                            </div>
+                            <div>
+                                <h3 class="font-bold text-gray-900">@${post.author}</h3>
+                                <time class="text-sm text-gray-500">
+                                    ${formatDate(post.published || post.crawled_at)}
+                                </time>
+                            </div>
+                        </div>
+                        <span class="bg-pink-500 text-white text-xs px-2 py-1 rounded-full">
+                            Instagram
+                        </span>
+                    </div>
+                    
+                    <p class="text-gray-800 mb-4 leading-relaxed">${post.content}</p>
+                    
+                    <a href="${post.url}" target="_blank" 
+                       class="inline-flex items-center text-pink-600 hover:text-pink-800 font-medium transition-colors">
+                        View on Instagram
+                        <i class="fas fa-external-link-alt ml-2 text-sm"></i>
+                    </a>
+                </article>
+            `).join('');
+        }
+
+        async function loadTikTokPosts() {
+            try {
+                const response = await fetch('/api/tiktok?limit=30');
+                if (!response.ok) throw new Error(`HTTP ${response.status}`);
+                
+                const posts = await response.json();
+                allTikTokPosts = posts;
+                document.getElementById('tiktok-count').textContent = `${posts.length} videos loaded`;
+                renderTikTokPosts();
+                
+            } catch (error) {
+                document.getElementById('tiktok-container').innerHTML = 
+                    `<div class="text-center text-red-500 py-8">
+                        <p>Error loading TikTok feed: ${error.message}</p>
+                        <button onclick="refreshTikTok()" class="mt-4 bg-gray-800 text-white px-4 py-2 rounded">
+                            Try Again
+                        </button>
+                    </div>`;
+            }
+        }
+
+        function renderTikTokPosts() {
+            const container = document.getElementById('tiktok-container');
+            
+            if (allTikTokPosts.length === 0) {
+                container.innerHTML = `
+                    <div class="text-center py-8">
+                        <i class="fab fa-tiktok text-4xl text-gray-800 mb-4"></i>
+                        <p class="text-gray-600 text-lg">No TikTok videos found.</p>
+                        <button onclick="crawlTikTokNow()" class="mt-4 bg-gray-800 hover:bg-gray-900 text-white px-6 py-2 rounded-lg">
+                            <i class="fab fa-tiktok mr-2"></i>Get Videos
+                        </button>
+                    </div>
+                `;
+                return;
+            }
+            
+            container.innerHTML = allTikTokPosts.map(post => `
+                <article class="bg-white rounded-lg shadow-md hover:shadow-lg card-hover p-6 mb-4">
+                    <div class="flex items-start justify-between mb-3">
+                        <div class="flex items-center gap-3">
+                            <div class="w-10 h-10 tiktok-dark rounded-full flex items-center justify-center">
+                                <i class="fab fa-tiktok text-white"></i>
+                            </div>
+                            <div>
+                                <h3 class="font-bold text-gray-900">@${post.author}</h3>
+                                <time class="text-sm text-gray-500">
+                                    ${formatDate(post.published || post.crawled_at)}
+                                </time>
+                            </div>
+                        </div>
+                        <span class="bg-gray-800 text-white text-xs px-2 py-1 rounded-full">
+                            TikTok
+                        </span>
+                    </div>
+                    
+                    <p class="text-gray-800 mb-4 leading-relaxed">${post.content}</p>
+                    
+                    <a href="${post.url}" target="_blank" 
+                       class="inline-flex items-center text-gray-800 hover:text-gray-900 font-medium transition-colors">
+                        Watch on TikTok
+                        <i class="fas fa-external-link-alt ml-2 text-sm"></i>
+                    </a>
+                </article>
+            `).join('');
+        }
+        
+        async function refreshStories() {
+            await loadStories();
+        }
+
+        async function refreshTwitter() {
+            await loadTwitterPosts();
+        }
+
+        async function refreshInstagram() {
+            await loadInstagramPosts();
+        }
+
+        async function refreshTikTok() {
+            await loadTikTokPosts();
+        }
+        
+        async function crawlNow() {
+            try {
+                const button = document.querySelector('button[onclick="crawlNow()"]');
+                button.innerHTML = '<i class="fas fa-spinner fa-spin mr-2"></i>Crawling...';
+                button.disabled = true;
+                
+                const response = await fetch('/api/crawl', { method: 'POST' });
+                
+                if (response.ok) {
+                    alert('Crawl started! Check back in 2-3 minutes for new stories.');
+                } else {
+                    alert('Error starting crawl. Please try again.');
+                }
+                
+            } catch (error) {
+                alert('Error: ' + error.message);
+            } finally {
+                const button = document.querySelector('button[onclick="crawlNow()"]');
+                button.innerHTML = '<i class="fas fa-download mr-2"></i>Crawl Now';
+                button.disabled = false;
+            }
+        }
+
+        async function crawlTwitterNow() {
+            try {
+                const button = document.querySelector('button[onclick="crawlTwitterNow()"]');
+                button.innerHTML = '<i class="fab fa-twitter fa-spin mr-2"></i>Crawling...';
+                button.disabled = true;
+                
+                const response = await fetch('/api/crawl-twitter', { method: 'POST' });
+                
+                if (response.ok) {
+                    alert('Twitter crawl started! Check back in 1-2 minutes for new tweets.');
+                } else {
+                    alert('Error starting Twitter crawl. Please try again.');
+                }
+                
+            } catch (error) {
+                alert('Error: ' + error.message);
+            } finally {
+                const button = document.querySelector('button[onclick="crawlTwitterNow()"]');
+                button.innerHTML = '<i class="fas fa-search mr-2"></i>Crawl Twitter';
+                button.disabled = false;
+            }
+        }
+
+        async function crawlInstagramNow() {
+            try {
+                const button = document.querySelector('button[onclick="crawlInstagramNow()"]');
+                button.innerHTML = '<i class="fab fa-instagram fa-spin mr-2"></i>Crawling...';
+                button.disabled = true;
+                
+                const response = await fetch('/api/crawl-instagram', { method: 'POST' });
+                
+                if (response.ok) {
+                    alert('Instagram crawl started! Check back in 1-2 minutes for new posts.');
+                } else {
+                    alert('Error starting Instagram crawl. Please try again.');
+                }
+                
+            } catch (error) {
+                alert('Error: ' + error.message);
+            } finally {
+                const button = document.querySelector('button[onclick="crawlInstagramNow()"]');
+                button.innerHTML = '<i class="fas fa-camera mr-2"></i>Crawl Instagram';
+                button.disabled = false;
+            }
+        }
+
+        async function crawlTikTokNow() {
+            try {
+                const button = document.querySelector('button[onclick="crawlTikTokNow()"]');
+                button.innerHTML = '<i class="fab fa-tiktok fa-spin mr-2"></i>Crawling...';
+                button.disabled = true;
+                
+                const response = await fetch('/api/crawl-tiktok', { method: 'POST' });
+                
+                if (response.ok) {
+                    alert('TikTok crawl started! Check back in 1-2 minutes for new videos.');
+                } else {
+                    alert('Error starting TikTok crawl. Please try again.');
+                }
+                
+            } catch (error) {
+                alert('Error: ' + error.message);
+            } finally {
+                const button = document.querySelector('button[onclick="crawlTikTokNow()"]');
+                button.innerHTML = '<i class="fas fa-video mr-2"></i>Crawl TikTok';
+                button.disabled = false;
+            }
+        }
+        
+        function formatDate(dateString) {
+            if (!dateString) return 'Unknown';
+            try {
+                const date = new Date(dateString);
+                const now = new Date();
+                const diff = now - date;
+                const hours = Math.floor(diff / (1000 * 60 * 60));
+                const days = Math.floor(hours / 24);
+                
+                if (hours < 1) return 'Just now';
+                if (hours < 24) return `${hours}h ago`;
+                if (days < 7) return `${days}d ago`;
+                return date.toLocaleDateString();
+            } catch {
+                return 'Unknown';
+            }
+        }
+        
+        loadStories();
+        
+        setInterval(() => {
+            if (currentTab === 'news') {
+                loadStories();
+            } else if (currentTab === 'twitter') {
+                loadTwitterPosts();
+            } else if (currentTab === 'instagram') {
+                loadInstagramPosts();
+            } else if (currentTab === 'tiktok') {
+                loadTikTokPosts();
+            }
+        }, 300000);
+    </script>
+</body>
+</html>
+"""
+
+@app.get("/", response_class=HTMLResponse)
+async def dashboard():
+    """Enhanced web dashboard with four tabs."""
+    return HTML_TEMPLATE
+
+@app.get("/api/summaries")
+async def get_summaries(limit: int = 50):
+    """Get story summaries."""
+    try:
+        if not os.path.exists(DB_PATH):
+            return []
+        
+        db = await aiosqlite.connect(DB_PATH)
+        
+        async with db.execute("""
+            SELECT title, url, published, brief, source, category, crawled_at
+            FROM stories
+            ORDER BY 
+                CASE 
+                    WHEN published IS NOT NULL AND published != '' 
+                    THEN datetime(published) 
+                    ELSE datetime(crawled_at) 
+                END DESC
+            LIMIT ?
+        """, (limit,)) as cur:
+            rows = await cur.fetchall()
+        
+        await db.close()
+        
+        stories = []
+        for row in rows:
+            try:
+                story = {
+                    "title": str(row[0] or "No Title"),
+                    "url": str(row[1] or ""),
+                    "published": str(row[2] or ""),
+                    "brief": str(row[3] or "No summary available"),
+                    "source": str(row[4] or "Unknown"),
+                    "category": str(row[5] or "General"),
+                    "crawled_at": str(row[6] or "")
+                }
+                stories.append(story)
+            except Exception:
+                continue
+        
+        return stories
+        
+    except Exception as e:
+        print(f"[error] Database query failed: {e}")
+        return []
+
+@app.get("/api/twitter")
+async def get_twitter_posts(limit: int = 30):
+    """Get Twitter posts."""
+    try:
+        if not os.path.exists(DB_PATH):
+            return []
+        
+        db = await aiosqlite.connect(DB_PATH)
+        
+        async with db.execute("""
+            SELECT author, content, url, published, crawled_at
+            FROM twitter_posts
+            ORDER BY 
+                CASE 
+                    WHEN published IS NOT NULL AND published != '' 
+                    THEN datetime(published) 
+                    ELSE datetime(crawled_at) 
+                END DESC
+            LIMIT ?
+        """, (limit,)) as cur:
+            rows = await cur.fetchall()
+        
+        await db.close()
+        
+        tweets = []
+        for row in rows:
+            try:
+                tweet = {
+                    "author": str(row[0] or "Unknown"),
+                    "content": str(row[1] or "No content"),
+                    "url": str(row[2] or ""),
+                    "published": str(row[3] or ""),
+                    "crawled_at": str(row[4] or "")
+                }
+                tweets.append(tweet)
+            except Exception:
+                continue
+        
+        return tweets
+        
+    except Exception as e:
+        print(f"[error] Twitter database query failed: {e}")
+        return []
+
+@app.get("/api/instagram")
+async def get_instagram_posts(limit: int = 30):
+    """Get Instagram posts."""
+    try:
+        if not os.path.exists(DB_PATH):
+            return []
+        
+        db = await aiosqlite.connect(DB_PATH)
+        
+        async with db.execute("""
+            SELECT author, content, url, published, crawled_at
+            FROM instagram_posts
+            ORDER BY 
+                CASE 
+                    WHEN published IS NOT NULL AND published != '' 
+                    THEN datetime(published) 
+                    ELSE datetime(crawled_at) 
+                END DESC
+            LIMIT ?
+        """, (limit,)) as cur:
+            rows = await cur.fetchall()
+        
+        await db.close()
+        
+        posts = []
+        for row in rows:
+            try:
+                post = {
+                    "author": str(row[0] or "Unknown"),
+                    "content": str(row[1] or "No content"),
+                    "url": str(row[2] or ""),
+                    "published": str(row[3] or ""),
+                    "crawled_at": str(row[4] or "")
+                }
+                posts.append(post)
+            except Exception:
+                continue
+        
+        return posts
+        
+    except Exception as e:
+        print(f"[error] Instagram database query failed: {e}")
+        return []
+
+@app.get("/api/tiktok")
+async def get_tiktok_posts(limit: int = 30):
+    """Get TikTok posts."""
+    try:
+        if not os.path.exists(DB_PATH):
+            return []
+        
+        db = await aiosqlite.connect(DB_PATH)
+        
+        async with db.execute("""
+            SELECT author, content, url, published, crawled_at
+            FROM tiktok_posts
+            ORDER BY 
+                CASE 
+                    WHEN published IS NOT NULL AND published != '' 
+                    THEN datetime(published) 
+                    ELSE datetime(crawled_at) 
+                END DESC
+            LIMIT ?
+        """, (limit,)) as cur:
+            rows = await cur.fetchall()
+        
+        await db.close()
+        
+        posts = []
+        for row in rows:
+            try:
+                post = {
+                    "author": str(row[0] or "Unknown"),
+                    "content": str(row[1] or "No content"),
+                    "url": str(row[2] or ""),
+                    "published": str(row[3] or ""),
+                    "crawled_at": str(row[4] or "")
+                }
+                posts.append(post)
+            except Exception:
+                continue
+        
+        return posts
+        
+    except Exception as e:
+        print(f"[error] TikTok database query failed: {e}")
+        return []
+
+@app.post("/api/crawl")
+async def manual_crawl():
+    """Trigger manual crawl."""
+    try:
+        asyncio.create_task(crawl_feeds())
+        return {"status": "crawl started"}
+    except Exception as e:
+        return {"status": "error", "message": str(e)}
+
+@app.post("/api/crawl-twitter")
+async def manual_twitter_crawl():
+    """Trigger manual Twitter crawl."""
+    try:
+        asyncio.create_task(crawl_twitter_feeds())
+        return {"status": "twitter crawl started"}
+    except Exception as e:
+        return {"status": "error", "message": str(e)}
+
+@app.post("/api/crawl-instagram")
+async def manual_instagram_crawl():
+    """Trigger manual Instagram crawl."""
+    try:
+        asyncio.create_task(crawl_instagram_feeds())
+        return {"status": "instagram crawl started"}
+    except Exception as e:
+        return {"status": "error", "message": str(e)}
+
+@app.post("/api/crawl-tiktok")
+async def manual_tiktok_crawl():
+    """Trigger manual TikTok crawl."""
+    try:
+        asyncio.create_task(crawl_tiktok_feeds())
+        return {"status": "tiktok crawl started"}
+    except Exception as e:
+        return {"status": "error", "message": str(e)}
+
+@app.get("/health")
+async def health():
+    """Health check."""
+    try:
+        if os.path.exists(DB_PATH):
+            db = await aiosqlite.connect(DB_PATH)
+            async with db.execute("SELECT COUNT(*) FROM stories") as cur:
+                story_count = (await cur.fetchone())[0]
+            async with db.execute("SELECT COUNT(*) FROM twitter_posts") as cur:
+                twitter_count = (await cur.fetchone())[0]
+            async with db.execute("SELECT COUNT(*) FROM instagram_posts") as cur:
+                instagram_count = (await cur.fetchone())[0]
+            async with db.execute("SELECT COUNT(*) FROM tiktok_posts") as cur:
+                tiktok_count = (await cur.fetchone())[0]
+            await db.close()
+            return {
+                "status": "healthy", 
+                "stories": story_count,
+                "twitter": twitter_count,
+                "instagram": instagram_count,
+                "tiktok": tiktok_count,
+                "version": "4.0.0"
+            }
+        else:
+            return {"status": "healthy", "stories": 0, "version": "4.0.0"}
+    except Exception as e:
+        return {"status": "error", "message": str(e)}
+
+# Enhanced background crawling
+async def background_crawler():
+    """Enhanced background crawler for all platforms."""
+    print("[info] Starting initial crawls...")
+    
+    if not crawl_in_progress:
+        await crawl_feeds()
+    
+    await asyncio.sleep(30)
+    
+    if not twitter_crawl_in_progress:
+        await crawl_twitter_feeds()
+    
+    await asyncio.sleep(30)
+    
+    if not instagram_crawl_in_progress:
+        await crawl_instagram_feeds()
+    
+    await asyncio.sleep(30)
+    
+    if not tiktok_crawl_in_progress:
+        await crawl_tiktok_feeds()
+    
+    while True:
+        try:
+            await asyncio.sleep(300)  # Wait 5 minutes
+            
+            if not crawl_in_progress:
+                await crawl_feeds()
+                await asyncio.sleep(30)
+            
+            if not twitter_crawl_in_progress:
+                await crawl_twitter_feeds()
+                await asyncio.sleep(30)
+            
+            if not instagram_crawl_in_progress:
+                await crawl_instagram_feeds()
+                await asyncio.sleep(30)
+            
+            if not tiktok_crawl_in_progress:
+                await crawl_tiktok_feeds()
+                
+        except Exception as e:
+            print(f"[error] Background crawler failed: {e}")
+            await asyncio.sleep(60)
+
+@app.on_event("startup")
+async def startup():
+    """Start enhanced background tasks."""
+    try:
+        await init_db()
+        asyncio.create_task(background_crawler())
+        print("[info] NIL News Hub Pro started successfully")
+    except Exception as e:
+        print(f"[error] Startup failed: {e}")
+
+if __name__ == "__main__":
+    import uvicorn
+    uvicorn.run(app, host="0.0.0.0", port=int(os.getenv("PORT", "8000")))
