@@ -6,6 +6,9 @@ import os
 import asyncio
 import datetime as dt
 import hashlib
+import json
+import re
+from collections import Counter
 from typing import Any, Dict, List
 
 import aiosqlite
@@ -23,17 +26,55 @@ FEEDS = [
     "https://www.espn.com/college-sports/rss",
     "https://sports.yahoo.com/college/rss",
     "https://www.si.com/college/.rss",
+    "https://www.cbssports.com/rss/headlines/college-football/",
+    "https://www.cbssports.com/rss/headlines/college-basketball/",
+    "https://www.on3.com/nil/news/feed/",
+    "https://www.athleticbusiness.com/rss/topic/college",
     "https://news.google.com/rss/search?q=NIL+college+athlete&hl=en-US&gl=US&ceid=US:en",
     "https://news.google.com/rss/search?q=NIL+collective+booster&hl=en-US&gl=US&ceid=US:en",
     "https://news.google.com/rss/search?q=college+sports+transfer+portal&hl=en-US&gl=US&ceid=US:en",
+    "https://news.google.com/rss/search?q=House+v+NCAA+NIL&hl=en-US&gl=US&ceid=US:en",
+    "https://news.google.com/rss/search?q=NCAA+NIL+lawsuit&hl=en-US&gl=US&ceid=US:en",
+    "https://news.google.com/rss/search?q=college+athlete+revenue+sharing&hl=en-US&gl=US&ceid=US:en",
+    "https://news.google.com/rss/search?q=NIL+coach+comments&hl=en-US&gl=US&ceid=US:en",
+    "https://news.google.com/rss/search?q=state+NIL+law+college&hl=en-US&gl=US&ceid=US:en",
 ]
 
 KEYWORDS = [
-    "nil", "name image likeness", "nil deal", "nil collective",
-    "collective", "booster", "endorsement", "sponsorship",
-    "student-athlete", "college athlete", "transfer portal",
-    "house v ncaa", "opendorse", "marketpryce",
+    "nil", "name image likeness", "name, image and likeness", "nil deal", "nil collective",
+    "collective", "booster", "endorsement", "sponsorship", "brand deal",
+    "student-athlete", "college athlete", "transfer portal", "recruiting",
+    "house v ncaa", "opendorse", "marketpryce", "revenue sharing",
+    "salary cap", "antitrust", "injunction", "settlement", "lawsuit",
+    "compliance", "ncaa", "conference commissioner", "roster limits",
 ]
+
+TOPIC_PATTERNS = {
+    "Legal": ["lawsuit", "settlement", "antitrust", "judge", "injunction", "complaint", "legal"],
+    "Collectives": ["collective", "booster", "foundation", "donor"],
+    "Technology": ["platform", "marketplace", "app", "software", "analytics"],
+    "Recruiting": ["transfer portal", "recruiting", "signing", "commitment"],
+    "Policy": ["ncaa", "compliance", "state law", "legislation", "congress", "rule"],
+    "Finance": ["revenue sharing", "cap", "valuation", "funding", "contract", "deal"],
+}
+
+ENTITY_PATTERNS = {
+    "players": [
+        "caitlin clark", "livvy dunne", "arch manning", "bronny james", "cooper flagg",
+        "shedeur sanders", "travis hunter", "angel reese", "paige bueckers", "hansel emmanuel",
+    ],
+    "coaches": [
+        "deion sanders", "nick saban", "kirby smart", "dabo swinney", "dan lanning",
+        "mike norvell", "jimbo fisher", "lane kiffin", "john calipari", "dawn staley",
+    ],
+    "schools": [
+        "alabama", "georgia", "lsu", "michigan", "ohio state", "usc", "texas", "oklahoma",
+        "florida state", "clemson", "oregon", "miami", "tennessee", "colorado", "uconn",
+    ],
+    "lawsuits": [
+        "house v ncaa", "johnson v ncaa", "alston", "antitrust", "title ix", "ninth circuit",
+    ],
+}
 
 # NIL Twitter accounts to monitor
 NIL_TWITTER_ACCOUNTS = [
@@ -118,9 +159,16 @@ async def init_db():
                 brief TEXT,
                 crawled_at TEXT NOT NULL,
                 source TEXT,
-                category TEXT
+                category TEXT,
+                entities TEXT
             )
         """)
+
+        # Lightweight migration for older DB versions
+        try:
+            await db.execute("ALTER TABLE stories ADD COLUMN entities TEXT")
+        except Exception:
+            pass
         
         # Twitter posts table
         await db.execute("""
@@ -177,19 +225,39 @@ def is_relevant(text: str) -> bool:
     return any(keyword in text_lower for keyword in keywords_lower)
 
 def categorize_content(title: str, text: str) -> str:
-    """Simple categorization."""
+    """Categorize story based on dominant NIL topic."""
     combined = (title + " " + text).lower()
-    
-    if any(word in combined for word in ["lawsuit", "settlement", "legal"]):
-        return "Legal"
-    elif any(word in combined for word in ["collective", "booster"]):
-        return "Collectives"
-    elif any(word in combined for word in ["marketplace", "platform"]):
-        return "Technology"
-    elif any(word in combined for word in ["transfer portal", "recruiting"]):
-        return "Recruiting"
-    else:
+
+    scored_topics = {}
+    for topic, patterns in TOPIC_PATTERNS.items():
+        score = sum(1 for pattern in patterns if pattern in combined)
+        if score:
+            scored_topics[topic] = score
+
+    if not scored_topics:
         return "General"
+
+    return max(scored_topics, key=scored_topics.get)
+
+
+def extract_entities(text: str) -> Dict[str, List[str]]:
+    """Extract key NIL entities for dashboard filtering."""
+    text_lower = text.lower()
+    found: Dict[str, List[str]] = {"players": [], "coaches": [], "schools": [], "lawsuits": []}
+
+    for entity_type, candidates in ENTITY_PATTERNS.items():
+        for candidate in candidates:
+            if candidate in text_lower:
+                found[entity_type].append(candidate.title())
+
+    # Fallback lightweight proper-noun detection for additional names.
+    if not found["players"] and not found["coaches"]:
+        names = re.findall(r"\b([A-Z][a-z]+\s+[A-Z][a-z]+)\b", text)
+        for name in names[:5]:
+            if name not in found["players"]:
+                found["players"].append(name)
+
+    return found
 
 def extract_source(url: str) -> str:
     """Simple source extraction."""
@@ -311,13 +379,25 @@ async def process_entry(entry: dict, db) -> bool:
         brief = simple_summarize(text)
         source = extract_source(url)
         category = categorize_content(title, text)
+        entities = extract_entities(title + " " + text)
         published = entry.get("published", "")
         crawled_at = dt.datetime.utcnow().isoformat()
-        
+
         await db.execute("""
-            INSERT INTO stories (id, title, url, published, summary, brief, crawled_at, source, category)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-        """, (story_id, title, url, published, text[:2000], brief, crawled_at, source, category))
+            INSERT INTO stories (id, title, url, published, summary, brief, crawled_at, source, category, entities)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        """, (
+            story_id,
+            title,
+            url,
+            published,
+            text[:2000],
+            brief,
+            crawled_at,
+            source,
+            category,
+            json.dumps(entities),
+        ))
         
         await db.commit()
         print(f"[+] Stored: {title[:50]}... [{source}]")
@@ -516,7 +596,7 @@ async def process_social_entry(entry: dict, db, platform: str) -> bool:
         return False
 
 # FastAPI app
-app = FastAPI(title="NIL News Hub Pro", version="4.0.0")
+app = FastAPI(title="NIL News Hub Pro", version="4.1.0")
 
 # Enhanced HTML template with four tabs
 HTML_TEMPLATE = """
@@ -545,11 +625,18 @@ HTML_TEMPLATE = """
                 <i class="fas fa-newspaper mr-3"></i>NIL News Hub Pro
             </h1>
             <p class="text-blue-100">Complete NIL monitoring across all platforms</p>
+            <p class="text-blue-200 text-sm mt-1">Live intelligence on players, coaches, schools, collectives, and lawsuits</p>
         </div>
     </header>
 
     <!-- Tabs -->
     <div class="container mx-auto px-6 pt-6">
+        <div class="grid grid-cols-1 md:grid-cols-4 gap-4 mb-6" id="metrics-grid">
+            <div class="bg-white rounded-lg shadow-md p-4"><p class="text-xs text-gray-500 uppercase">Stories (total)</p><p id="metric-total" class="text-2xl font-bold text-gray-900">0</p></div>
+            <div class="bg-white rounded-lg shadow-md p-4"><p class="text-xs text-gray-500 uppercase">Last 72h</p><p id="metric-recent" class="text-2xl font-bold text-blue-700">0</p></div>
+            <div class="bg-white rounded-lg shadow-md p-4"><p class="text-xs text-gray-500 uppercase">Top Category</p><p id="metric-top-category" class="text-2xl font-bold text-purple-700">-</p></div>
+            <div class="bg-white rounded-lg shadow-md p-4"><p class="text-xs text-gray-500 uppercase">Top Source</p><p id="metric-top-source" class="text-2xl font-bold text-emerald-700">-</p></div>
+        </div>
         <div class="bg-white rounded-lg shadow-md mb-6">
             <div class="flex border-b overflow-x-auto">
                 <button onclick="showTab('news')" id="news-tab" class="tab-active px-6 py-3 font-medium rounded-tl-lg flex-shrink-0">
@@ -585,14 +672,31 @@ HTML_TEMPLATE = """
                         <option value="Recruiting">Recruiting</option>
                         <option value="General">General</option>
                     </select>
+                    <input id="search-filter" oninput="filterStories()" placeholder="Search NIL stories, schools, lawsuits..." class="border border-gray-300 rounded-lg px-3 py-2 min-w-[260px]" />
+                    <select id="entity-filter" onchange="filterStories()" class="border border-gray-300 rounded-lg px-3 py-2">
+                        <option value="">All Entities</option>
+                    </select>
                     <span id="story-count" class="text-gray-600 font-medium"></span>
                 </div>
             </div>
-            <div id="stories-container">
-                <div class="text-center py-8">
-                    <i class="fas fa-spinner fa-spin text-2xl text-blue-600"></i>
-                    <p class="text-gray-600 mt-2">Loading NIL news...</p>
+            <div class="grid grid-cols-1 xl:grid-cols-3 gap-6">
+                <div id="stories-container" class="xl:col-span-2">
+                    <div class="text-center py-8">
+                        <i class="fas fa-spinner fa-spin text-2xl text-blue-600"></i>
+                        <p class="text-gray-600 mt-2">Loading NIL news...</p>
+                    </div>
                 </div>
+                <aside class="bg-white rounded-lg shadow-md p-5 h-fit">
+                    <h3 class="text-lg font-bold text-gray-900 mb-3"><i class="fas fa-chart-line mr-2"></i>NIL Intelligence</h3>
+                    <div class="mb-4">
+                        <h4 class="text-sm font-semibold text-gray-700 mb-2">Top Entities</h4>
+                        <div id="entity-leaderboard" class="space-y-2 text-sm text-gray-700"></div>
+                    </div>
+                    <div>
+                        <h4 class="text-sm font-semibold text-gray-700 mb-2">Top Sources</h4>
+                        <div id="source-leaderboard" class="space-y-2 text-sm text-gray-700"></div>
+                    </div>
+                </aside>
             </div>
         </div>
 
@@ -666,6 +770,7 @@ HTML_TEMPLATE = """
         let allInstagramPosts = [];
         let allTikTokPosts = [];
         let currentTab = 'news';
+        let analyticsData = null;
 
         function showTab(tabName) {
             document.querySelectorAll('.tab-content').forEach(el => el.classList.add('hidden'));
@@ -687,6 +792,51 @@ HTML_TEMPLATE = """
                 loadInstagramPosts();
             } else if (tabName === 'tiktok') {
                 loadTikTokPosts();
+            }
+        }
+
+        async function loadAnalytics() {
+            try {
+                const response = await fetch('/api/analytics?hours=72');
+                if (!response.ok) throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+
+                analyticsData = await response.json();
+                document.getElementById('metric-total').textContent = analyticsData.stories_total || 0;
+                document.getElementById('metric-recent').textContent = analyticsData.stories_last_window || 0;
+
+                const categoryEntries = Object.entries(analyticsData.category_breakdown || {});
+                const topCategory = categoryEntries.length ? categoryEntries[0][0] : '-';
+                document.getElementById('metric-top-category').textContent = topCategory;
+
+                const topSource = (analyticsData.top_sources || [])[0]?.source || '-';
+                document.getElementById('metric-top-source').textContent = topSource;
+
+                const leaderboard = document.getElementById('entity-leaderboard');
+                const allEntities = [];
+                const sections = ['players', 'coaches', 'schools', 'lawsuits'];
+                const lines = [];
+                sections.forEach(section => {
+                    (analyticsData.entity_leaders?.[section] || []).slice(0, 2).forEach(item => {
+                        lines.push(`<div class="flex justify-between"><span class="capitalize">${item.name}</span><span class="text-gray-500">${item.count}</span></div>`);
+                        allEntities.push(item.name);
+                    });
+                });
+                leaderboard.innerHTML = lines.length ? lines.join('') : '<p class="text-gray-500">No entities yet.</p>';
+
+                const sourceBoard = document.getElementById('source-leaderboard');
+                sourceBoard.innerHTML = (analyticsData.top_sources || []).slice(0, 6).map(item =>
+                    `<div class="flex justify-between"><span>${item.source}</span><span class="text-gray-500">${item.count}</span></div>`
+                ).join('') || '<p class="text-gray-500">No sources yet.</p>';
+
+                const entityFilter = document.getElementById('entity-filter');
+                const existingValue = entityFilter.value;
+                const uniqueEntities = [...new Set(allEntities)].sort((a, b) => a.localeCompare(b));
+                entityFilter.innerHTML = '<option value="">All Entities</option>' +
+                    uniqueEntities.map(name => `<option value="${name}">${name}</option>`).join('');
+                entityFilter.value = uniqueEntities.includes(existingValue) ? existingValue : '';
+
+            } catch (error) {
+                console.error('Error loading analytics:', error);
             }
         }
 
@@ -714,9 +864,19 @@ HTML_TEMPLATE = """
 
         function filterStories() {
             const categoryFilter = document.getElementById('category-filter').value;
-            
+            const searchFilter = (document.getElementById('search-filter').value || '').toLowerCase();
+            const entityFilter = (document.getElementById('entity-filter').value || '').toLowerCase();
+
             let filteredStories = allStories.filter(story => {
                 if (categoryFilter && story.category !== categoryFilter) return false;
+
+                const searchable = `${story.title} ${story.brief} ${story.source}`.toLowerCase();
+                if (searchFilter && !searchable.includes(searchFilter)) return false;
+
+                if (entityFilter) {
+                    const entityValues = Object.values(story.entities || {}).flat().map(value => value.toLowerCase());
+                    if (!entityValues.includes(entityFilter)) return false;
+                }
                 return true;
             });
 
@@ -765,7 +925,14 @@ HTML_TEMPLATE = """
                     </h2>
                     
                     <p class="text-gray-700 mb-4 leading-relaxed">${story.brief}</p>
-                    
+                    <div class="flex flex-wrap gap-2 mb-4">
+                        ${Object.entries(story.entities || {}).flatMap(([kind, names]) =>
+                            (names || []).slice(0, 3).map(name =>
+                                `<span class="text-xs px-2 py-1 bg-gray-100 text-gray-700 rounded-full">${kind.slice(0, -1)}: ${name}</span>`
+                            )
+                        ).join('')}
+                    </div>
+
                     <a href="${story.url}" target="_blank" 
                        class="inline-flex items-center text-blue-600 hover:text-blue-800 font-medium transition-colors">
                         Read Full Article
@@ -1108,10 +1275,12 @@ HTML_TEMPLATE = """
             }
         }
         
+        loadAnalytics();
         loadStories();
         
         setInterval(() => {
             if (currentTab === 'news') {
+                loadAnalytics();
                 loadStories();
             } else if (currentTab === 'twitter') {
                 loadTwitterPosts();
@@ -1132,7 +1301,7 @@ async def dashboard():
     return HTML_TEMPLATE
 
 @app.get("/api/summaries")
-async def get_summaries(limit: int = 50):
+async def get_summaries(limit: int = 50, q: str = "", entity: str = ""):
     """Get story summaries with bulletproof error handling."""
     try:
         if not os.path.exists(DB_PATH):
@@ -1141,7 +1310,7 @@ async def get_summaries(limit: int = 50):
         db = await aiosqlite.connect(DB_PATH)
         
         async with db.execute("""
-            SELECT title, url, published, brief, source, category, crawled_at
+            SELECT title, url, published, brief, source, category, crawled_at, entities
             FROM stories
             ORDER BY 
                 CASE 
@@ -1150,7 +1319,7 @@ async def get_summaries(limit: int = 50):
                     ELSE datetime(crawled_at) 
                 END DESC
             LIMIT ?
-        """, (limit,)) as cur:
+        """, (max(limit * 4, 100),)) as cur:
             rows = await cur.fetchall()
         
         await db.close()
@@ -1158,6 +1327,7 @@ async def get_summaries(limit: int = 50):
         stories = []
         for row in rows:
             try:
+                entities_data = json.loads(row[7]) if row[7] else {"players": [], "coaches": [], "schools": [], "lawsuits": []}
                 story = {
                     "title": str(row[0] or "No Title"),
                     "url": str(row[1] or ""),
@@ -1165,17 +1335,101 @@ async def get_summaries(limit: int = 50):
                     "brief": str(row[3] or "No summary available"),
                     "source": str(row[4] or "Unknown"),
                     "category": str(row[5] or "General"),
-                    "crawled_at": str(row[6] or "")
+                    "crawled_at": str(row[6] or ""),
+                    "entities": entities_data,
                 }
+
+                searchable = f"{story['title']} {story['brief']} {story['source']}".lower()
+                if q and q.lower() not in searchable:
+                    continue
+
+                if entity:
+                    entity_lower = entity.lower()
+                    entity_values = [v.lower() for values in entities_data.values() for v in values]
+                    if entity_lower not in entity_values:
+                        continue
+
                 stories.append(story)
             except Exception as e:
                 continue
         
-        return stories
+        return stories[:limit]
         
     except Exception as e:
         print(f"[error] Database query failed: {e}")
         return []
+
+@app.get("/api/analytics")
+async def get_analytics(hours: int = 72):
+    """Aggregate NIL intelligence metrics for dashboard widgets."""
+    try:
+        if not os.path.exists(DB_PATH):
+            return {
+                "stories_total": 0,
+                "stories_last_window": 0,
+                "category_breakdown": {},
+                "top_sources": [],
+                "entity_leaders": {"players": [], "coaches": [], "schools": [], "lawsuits": []},
+                "updated_at": dt.datetime.utcnow().isoformat(),
+            }
+
+        db = await aiosqlite.connect(DB_PATH)
+        cutoff = (dt.datetime.utcnow() - dt.timedelta(hours=hours)).isoformat()
+
+        async with db.execute("SELECT COUNT(*) FROM stories") as cur:
+            total_stories = (await cur.fetchone())[0]
+
+        async with db.execute("SELECT COUNT(*) FROM stories WHERE crawled_at >= ?", (cutoff,)) as cur:
+            recent_stories = (await cur.fetchone())[0]
+
+        async with db.execute("SELECT category, COUNT(*) FROM stories GROUP BY category ORDER BY COUNT(*) DESC") as cur:
+            category_rows = await cur.fetchall()
+
+        async with db.execute("SELECT source, COUNT(*) FROM stories GROUP BY source ORDER BY COUNT(*) DESC LIMIT 8") as cur:
+            source_rows = await cur.fetchall()
+
+        async with db.execute("SELECT entities FROM stories WHERE entities IS NOT NULL AND entities != ''") as cur:
+            entity_rows = await cur.fetchall()
+
+        await db.close()
+
+        entity_counters = {
+            "players": Counter(),
+            "coaches": Counter(),
+            "schools": Counter(),
+            "lawsuits": Counter(),
+        }
+        for (entity_json,) in entity_rows:
+            try:
+                parsed = json.loads(entity_json)
+                for entity_type in entity_counters.keys():
+                    for name in parsed.get(entity_type, []):
+                        entity_counters[entity_type][name] += 1
+            except Exception:
+                continue
+
+        return {
+            "stories_total": total_stories,
+            "stories_last_window": recent_stories,
+            "category_breakdown": {row[0] or "General": row[1] for row in category_rows},
+            "top_sources": [{"source": row[0] or "Unknown", "count": row[1]} for row in source_rows],
+            "entity_leaders": {
+                key: [{"name": name, "count": count} for name, count in counter.most_common(6)]
+                for key, counter in entity_counters.items()
+            },
+            "updated_at": dt.datetime.utcnow().isoformat(),
+        }
+
+    except Exception as e:
+        print(f"[error] Analytics query failed: {e}")
+        return {
+            "stories_total": 0,
+            "stories_last_window": 0,
+            "category_breakdown": {},
+            "top_sources": [],
+            "entity_leaders": {"players": [], "coaches": [], "schools": [], "lawsuits": []},
+            "updated_at": dt.datetime.utcnow().isoformat(),
+        }
 
 @app.get("/api/twitter")
 async def get_twitter_posts(limit: int = 30):
@@ -1366,10 +1620,10 @@ async def health():
                 "twitter": twitter_count,
                 "instagram": instagram_count,
                 "tiktok": tiktok_count,
-                "version": "4.0.0"
+                "version": "4.1.0"
             }
         else:
-            return {"status": "healthy", "stories": 0, "version": "4.0.0"}
+            return {"status": "healthy", "stories": 0, "version": "4.1.0"}
     except Exception as e:
         return {"status": "error", "message": str(e)}
 
